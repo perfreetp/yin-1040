@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { mockHistoricalCashFlow, formatAmount, getAlertLevelBorder } from '@/data/mockData';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Wallet, ArrowUpRight, ArrowDownRight, TrendingUp, Database, FlaskConical, AlertTriangle, Bell, RefreshCw, Pencil, Check } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, TrendingUp, Database, FlaskConical, AlertTriangle, Bell, RefreshCw, Pencil, Check, X, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 function buildChartData(predictions: import('@/types').CashFlowPrediction[], safetyAmount: number) {
@@ -37,10 +37,47 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 export default function Home() {
-  const { predictions, alerts, safetyBalance, receivables, payables, currentBalance, setCurrentBalance, regeneratePredictions } = useStore();
+  const { predictions, alerts, safetyBalance, receivables, payables, currentBalance, setCurrentBalance, regeneratePredictions, activeFilter, clearActiveFilter } = useStore();
   const [isEditingBalance, setIsEditingBalance] = useState(false);
   const [balanceInput, setBalanceInput] = useState(String(currentBalance));
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [useFilteredScope, setUseFilteredScope] = useState(false);
+
+  function applyReceivableFilter(list: import('@/types').Receivable[], filter: import('@/types').FilterScope): import('@/types').Receivable[] {
+    let data = [...list];
+    if (filter.riskLevel && filter.riskLevel !== 'all') {
+      data = data.filter((r) => r.riskLevel === filter.riskLevel);
+    }
+    if (filter.customerStatus && filter.customerStatus !== 'all') {
+      data = data.filter((r) => r.status === filter.customerStatus);
+    }
+    if (filter.receivableAmountMin) {
+      data = data.filter((r) => r.amount >= filter.receivableAmountMin!);
+    }
+    if (filter.receivableAmountMax) {
+      data = data.filter((r) => r.amount <= filter.receivableAmountMax!);
+    }
+    return data;
+  }
+
+  function applyPayableFilter(list: import('@/types').Payable[], filter: import('@/types').FilterScope): import('@/types').Payable[] {
+    let data = [...list];
+    if (filter.pressureLevel && filter.pressureLevel !== 'all') {
+      if (filter.pressureLevel === 'high') data = data.filter((p) => p.paymentPressure >= 80);
+      else if (filter.pressureLevel === 'medium') data = data.filter((p) => p.paymentPressure >= 50 && p.paymentPressure < 80);
+      else if (filter.pressureLevel === 'low') data = data.filter((p) => p.paymentPressure < 50);
+    }
+    if (filter.supplierStatus && filter.supplierStatus !== 'all') {
+      data = data.filter((p) => p.status === filter.supplierStatus);
+    }
+    if (filter.payableAmountMin) {
+      data = data.filter((p) => p.amount >= filter.payableAmountMin!);
+    }
+    if (filter.payableAmountMax) {
+      data = data.filter((p) => p.amount <= filter.payableAmountMax!);
+    }
+    return data;
+  }
 
   const chartData = buildChartData(predictions, safetyBalance.amount);
   const recentAlerts = alerts.slice(0, 3);
@@ -49,8 +86,19 @@ export default function Home() {
   const nextGap = neutralPredictions[0];
   const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  const receivablesTotal = receivables.filter((r) => r.status !== 'received').reduce((sum, r) => sum + r.amount, 0);
-  const payablesTotal = payables.filter((p) => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
+  let workingReceivables = receivables;
+  let workingPayables = payables;
+
+  if (activeFilter && useFilteredScope) {
+    if (activeFilter.scope === 'customer') {
+      workingReceivables = applyReceivableFilter(receivables, activeFilter);
+    } else if (activeFilter.scope === 'supplier') {
+      workingPayables = applyPayableFilter(payables, activeFilter);
+    }
+  }
+
+  const receivablesTotal = workingReceivables.filter((r) => r.status !== 'received').reduce((sum, r) => sum + r.amount, 0);
+  const payablesTotal = workingPayables.filter((p) => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
   const netCashFlow = currentBalance + receivablesTotal - payablesTotal;
 
   const handleSaveBalance = () => {
@@ -94,6 +142,58 @@ export default function Home() {
           重新生成预测
         </button>
       </div>
+
+      {activeFilter && (
+        <div className="glass-card rounded-xl p-4 flex items-center gap-3">
+          <Search className="h-5 w-5 text-ice-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">
+              当前数据口径：{activeFilter.label}
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400">
+              <span>应用时间：{activeFilter.appliedAt}</span>
+              <span>
+                应用范围：
+                {activeFilter.scope === 'customer' ? '应收账款' : activeFilter.scope === 'supplier' ? '应付账款' : '全部'}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={clearActiveFilter}
+            className="shrink-0 p-2 rounded-lg bg-navy-700/50 hover:bg-navy-700 text-gray-400 hover:text-coral-400 transition-colors"
+            title="清空筛选"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {activeFilter && (
+        <div className="flex items-center justify-center">
+          <div className="inline-flex rounded-lg border border-white/10 overflow-hidden">
+            <button
+              onClick={() => setUseFilteredScope(false)}
+              className={`px-4 py-2 text-xs font-medium transition-colors ${
+                !useFilteredScope
+                  ? 'bg-ice-500 text-white'
+                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+              }`}
+            >
+              全量口径
+            </button>
+            <button
+              onClick={() => setUseFilteredScope(true)}
+              className={`px-4 py-2 text-xs font-medium transition-colors ${
+                useFilteredScope
+                  ? 'bg-ice-500 text-white'
+                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+              }`}
+            >
+              筛选口径
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => {

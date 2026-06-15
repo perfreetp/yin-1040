@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type {
   Receivable, Payable, CashFlowPrediction, Alert, PredictionVersion,
-  SafetyBalance, ScenarioSimulation, ActualResult, AlertLevel, RiskLevel, Scenario
+  SafetyBalance, ScenarioSimulation, ActualResult, AlertLevel, RiskLevel, Scenario,
+  FilterScope, AlertHandlingStatus,
 } from '@/types';
 import { mockReceivables, mockPayables, mockPredictions, mockAlerts, mockPredictionVersions } from '@/data/mockData';
 
@@ -39,6 +40,7 @@ function saveToStorage(state: any) {
       safetyBalance: state.safetyBalance,
       scenarioSimulations: state.scenarioSimulations,
       currentBalance: state.currentBalance,
+      activeFilter: state.activeFilter,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {}
@@ -178,18 +180,32 @@ function generateAlerts(
   existingAlerts: Alert[],
   currentBalance: number
 ): Alert[] {
+  const existingMap: Record<string, Alert> = {};
+  existingAlerts.forEach((a) => {
+    existingMap[`${a.type}|${a.relatedEntityId || ''}|${a.title}`] = a;
+  });
+
   const alerts: Alert[] = existingAlerts.filter(
-    (a) => a.type !== 'balance_safety'
-  );
+    (a) => a.type !== 'balance_safety' && !a.archived
+  ).map((a) => ({ ...a }));
   const today = new Date().toISOString().slice(0, 10);
   const ts = today + ' ' + new Date().toTimeString().slice(0, 5);
-  const existingKeys = new Set(alerts.map((a) => `${a.type}|${a.relatedEntityId || ''}|${a.title}`));
+
+  const pushOrUpdate = (key: string, newAlert: Alert) => {
+    const existing = existingMap[key];
+    if (existing) {
+      alerts.push(existing);
+    } else {
+      alerts.push({ ...newAlert, handlingStatus: 'unhandled', archived: false });
+    }
+  };
 
   if (currentBalance < safetyAmount) {
     const deficit = safetyAmount - currentBalance;
     const pct = ((deficit / safetyAmount) * 100).toFixed(1);
     const level: AlertLevel = deficit >= safetyAmount * 0.5 ? 'red' : deficit >= safetyAmount * 0.2 ? 'orange' : 'yellow';
-    alerts.unshift({
+    const key = 'balance_safety||当前资金低于安全余额';
+    pushOrUpdate(key, {
       id: 'alert-balance-safety',
       type: 'balance_safety',
       level,
@@ -198,6 +214,8 @@ function generateAlerts(
       createdAt: ts,
       isRead: false,
       notes: [],
+      handlingStatus: 'unhandled',
+      archived: false,
     });
   }
 
@@ -205,20 +223,20 @@ function generateAlerts(
     if (p.gap > 0) {
       const level: AlertLevel = p.gap >= safetyAmount * 0.5 ? 'red' : p.gap >= safetyAmount * 0.2 ? 'orange' : 'yellow';
       const key = `funding_gap|${p.id}|${p.month}资金缺口`;
-      if (!existingKeys.has(key)) {
-        alerts.push({
-          id: uuid(),
-          type: 'funding_gap',
-          level,
-          title: `${p.month.slice(5)}月资金缺口预警`,
-          description: `预计缺口¥${(p.gap / 10000).toFixed(1)}万，${p.gap >= safetyAmount ? '已超过安全余额线' : '接近安全余额线'}，请提前安排资金调度`,
-          createdAt: ts,
-          isRead: false,
-          notes: [],
-          relatedEntityId: p.id,
-          relatedEntityType: 'prediction',
-        });
-      }
+      pushOrUpdate(key, {
+        id: uuid(),
+        type: 'funding_gap',
+        level,
+        title: `${p.month.slice(5)}月资金缺口预警`,
+        description: `预计缺口¥${(p.gap / 10000).toFixed(1)}万，${p.gap >= safetyAmount ? '已超过安全余额线' : '接近安全余额线'}，请提前安排资金调度`,
+        createdAt: ts,
+        isRead: false,
+        notes: [],
+        handlingStatus: 'unhandled',
+        archived: false,
+        relatedEntityId: p.id,
+        relatedEntityType: 'prediction',
+      });
     }
   });
 
@@ -227,20 +245,20 @@ function generateAlerts(
       const overdueDays = Math.max(0, daysBetween(today, r.dueDate));
       const level: AlertLevel = overdueDays > 30 ? 'red' : overdueDays > 10 ? 'orange' : 'yellow';
       const key = `customer_overdue|${r.id}|${r.customerName}`;
-      if (!existingKeys.has(key)) {
-        alerts.push({
-          id: uuid(),
-          type: 'customer_overdue',
-          level,
-          title: `${r.customerName} 回款风险`,
-          description: `应收¥${(r.amount / 10000).toFixed(1)}万，${overdueDays > 0 ? `已逾期${overdueDays}天，` : ''}回款概率${r.collectionProbability}%，风险等级${r.riskLevel}`,
-          createdAt: ts,
-          isRead: false,
-          notes: [],
-          relatedEntityId: r.id,
-          relatedEntityType: 'receivable',
-        });
-      }
+      pushOrUpdate(key, {
+        id: uuid(),
+        type: 'customer_overdue',
+        level,
+        title: `${r.customerName} 回款风险`,
+        description: `应收¥${(r.amount / 10000).toFixed(1)}万，${overdueDays > 0 ? `已逾期${overdueDays}天，` : ''}回款概率${r.collectionProbability}%，风险等级${r.riskLevel}`,
+        createdAt: ts,
+        isRead: false,
+        notes: [],
+        handlingStatus: 'unhandled',
+        archived: false,
+        relatedEntityId: r.id,
+        relatedEntityType: 'receivable',
+      });
     }
   });
 
@@ -248,20 +266,20 @@ function generateAlerts(
     if (p.paymentPressure >= 70 || p.status === 'overdue') {
       const level: AlertLevel = p.paymentPressure >= 90 || p.status === 'overdue' ? 'orange' : 'yellow';
       const key = `supplier_pressure|${p.id}|${p.supplierName}`;
-      if (!existingKeys.has(key)) {
-        alerts.push({
-          id: uuid(),
-          type: 'supplier_pressure',
-          level,
-          title: `${p.supplierName} 付款压力高`,
-          description: `应付¥${(p.amount / 10000).toFixed(1)}万，付款压力指数${p.paymentPressure}%${p.status === 'overdue' ? '，已逾期' : ''}，建议优先安排`,
-          createdAt: ts,
-          isRead: false,
-          notes: [],
-          relatedEntityId: p.id,
-          relatedEntityType: 'payable',
-        });
-      }
+      pushOrUpdate(key, {
+        id: uuid(),
+        type: 'supplier_pressure',
+        level,
+        title: `${p.supplierName} 付款压力高`,
+        description: `应付¥${(p.amount / 10000).toFixed(1)}万，付款压力指数${p.paymentPressure}%${p.status === 'overdue' ? '，已逾期' : ''}，建议优先安排`,
+        createdAt: ts,
+        isRead: false,
+        notes: [],
+        handlingStatus: 'unhandled',
+        archived: false,
+        relatedEntityId: p.id,
+        relatedEntityType: 'payable',
+      });
     }
   });
 
@@ -277,6 +295,7 @@ interface CashFlowStore {
   safetyBalance: SafetyBalance;
   scenarioSimulations: ScenarioSimulation[];
   currentBalance: number;
+  activeFilter: FilterScope | null;
   initialized: boolean;
 
   addReceivable: (r: Receivable) => void;
@@ -294,6 +313,12 @@ interface CashFlowStore {
   refreshAlerts: () => void;
   regeneratePredictions: () => void;
   setCurrentBalance: (amount: number) => void;
+  setActiveFilter: (filter: FilterScope | null) => void;
+  clearActiveFilter: () => void;
+  setAlertHandlingStatus: (id: string, status: AlertHandlingStatus) => void;
+  archiveAlert: (id: string) => void;
+  unarchiveAlert: (id: string) => void;
+  resolveAlert: (id: string) => void;
 }
 
 const persisted = loadFromStorage();
@@ -301,7 +326,12 @@ const persisted = loadFromStorage();
 const initialReceivables = persisted?.receivables ?? mockReceivables;
 const initialPayables = persisted?.payables ?? mockPayables;
 const initialPredictions = persisted?.predictions ?? mockPredictions;
-const initialAlerts = persisted?.alerts ?? mockAlerts;
+const initialAlerts = persisted?.alerts ?? mockAlerts.map((a) => ({
+  ...a,
+  handlingStatus: a.isRead ? 'read' : 'unhandled',
+  archived: false,
+  archivedAt: undefined,
+}) as Alert);
 
 export const useStore = create<CashFlowStore>((set, get) => ({
   receivables: initialReceivables,
@@ -312,6 +342,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
   safetyBalance: persisted?.safetyBalance ?? defaultSafetyBalance,
   scenarioSimulations: persisted?.scenarioSimulations ?? [],
   currentBalance: persisted?.currentBalance ?? 12600000,
+  activeFilter: (persisted as any)?.activeFilter ?? null,
   initialized: true,
 
   addReceivable: (r) => {
@@ -354,7 +385,16 @@ export const useStore = create<CashFlowStore>((set, get) => ({
 
   markAlertRead: (id, read = true) => {
     set((s) => {
-      const next = { ...s, alerts: s.alerts.map((a) => a.id === id ? { ...a, isRead: read } : a) };
+      const next = {
+        ...s,
+        alerts: s.alerts.map((a) => {
+          if (a.id !== id) return a;
+          const hs: AlertHandlingStatus = read
+            ? a.notes.length ? 'noted' : 'read'
+            : 'unhandled';
+          return { ...a, isRead: read, handlingStatus: hs };
+        }),
+      };
       saveToStorage(next);
       return next;
     });
@@ -362,7 +402,14 @@ export const useStore = create<CashFlowStore>((set, get) => ({
 
   markAllAlertsRead: () => {
     set((s) => {
-      const next = { ...s, alerts: s.alerts.map((a) => ({ ...a, isRead: true })) };
+      const next = {
+        ...s,
+        alerts: s.alerts.map((a) => {
+          if (a.isRead) return a;
+          const hs: AlertHandlingStatus = a.notes.length ? 'noted' : 'read';
+          return { ...a, isRead: true, handlingStatus: hs };
+        }),
+      };
       saveToStorage(next);
       return next;
     });
@@ -370,7 +417,13 @@ export const useStore = create<CashFlowStore>((set, get) => ({
 
   addAlertNote: (alertId, note) => {
     set((s) => {
-      const next = { ...s, alerts: s.alerts.map((a) => a.id === alertId ? { ...a, notes: [...a.notes, note] } : a) };
+      const hs: AlertHandlingStatus = 'noted';
+      const next = {
+        ...s,
+        alerts: s.alerts.map((a) => a.id === alertId ? {
+          ...a, notes: [...a.notes, note], handlingStatus: hs,
+        } : a),
+      };
       saveToStorage(next);
       return next;
     });
@@ -511,6 +564,60 @@ export const useStore = create<CashFlowStore>((set, get) => ({
     set((s) => {
       const newAlerts = generateAlerts(s.receivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts, amount);
       const next = { ...s, currentBalance: amount, alerts: newAlerts };
+      saveToStorage(next);
+      return next;
+    });
+  },
+
+  setActiveFilter: (filter) => {
+    set((s) => { const next = { ...s, activeFilter: filter }; saveToStorage(next); return next; });
+  },
+
+  clearActiveFilter: () => {
+    set((s) => { const next = { ...s, activeFilter: null }; saveToStorage(next); return next; });
+  },
+
+  setAlertHandlingStatus: (id, status) => {
+    set((s) => {
+      const next = { ...s, alerts: s.alerts.map((a) => a.id === id ? { ...a, handlingStatus: status, isRead: status !== 'unhandled' } : a) };
+      saveToStorage(next);
+      return next;
+    });
+  },
+
+  archiveAlert: (id) => {
+    set((s) => {
+      const ts = new Date().toLocaleString('zh-CN');
+      const hs: AlertHandlingStatus = 'archived';
+      const next = {
+        ...s,
+        alerts: s.alerts.map((a) => a.id === id
+          ? { ...a, archived: true, archivedAt: ts, handlingStatus: hs }
+          : a),
+      };
+      saveToStorage(next);
+      return next;
+    });
+  },
+
+  unarchiveAlert: (id) => {
+    set((s) => {
+      const hs: AlertHandlingStatus = 'read';
+      const next = {
+        ...s,
+        alerts: s.alerts.map((a) => a.id === id
+          ? { ...a, archived: false, archivedAt: undefined, handlingStatus: hs }
+          : a),
+      };
+      saveToStorage(next);
+      return next;
+    });
+  },
+
+  resolveAlert: (id) => {
+    set((s) => {
+      const hs: AlertHandlingStatus = 'resolved';
+      const next = { ...s, alerts: s.alerts.map((a) => a.id === id ? { ...a, handlingStatus: hs, isRead: true } : a) };
       saveToStorage(next);
       return next;
     });

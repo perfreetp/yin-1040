@@ -12,6 +12,7 @@ export interface BusinessReportData {
   scenarios: ScenarioSimulation[];
   safetyBalance: SafetyBalance;
   alertFilter?: string;
+  filterDescription?: string;
   generatedAt: string;
   includedChapters?: string[];
 }
@@ -21,7 +22,7 @@ export function generateBusinessReport(data: BusinessReportData): string {
     currentBalance, totalReceivable, totalPayable,
     receivables, payables, predictions, alerts,
     predictionVersions, scenarios, safetyBalance,
-    alertFilter,
+    alertFilter, filterDescription,
   } = data;
 
   const neutral = predictions.filter((p) => p.scenario === 'neutral');
@@ -69,6 +70,7 @@ export function generateBusinessReport(data: BusinessReportData): string {
     '══════════════════════════════════════════════════════════════',
     '',
     `生成时间：${data.generatedAt}`,
+    filterDescription ? `数据口径：${filterDescription}` : '',
     alertFilter ? `当前筛选条件：${alertFilter}` : '',
     '',
     ...(inc('core') ? [

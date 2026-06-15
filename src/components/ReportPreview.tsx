@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { X, FileText, Download, Check, CheckCheck } from 'lucide-react';
 import { generateBusinessReport, downloadReport } from '@/utils/report';
 import type { BusinessReportData } from '@/utils/report';
+import type { FilterScope, Receivable, Payable } from '@/types';
 
 const CHAPTERS = [
   { key: 'core', label: '一、核心经营指标', defaultChecked: true },
@@ -17,21 +18,75 @@ interface ReportPreviewProps {
   open: boolean;
   onClose: () => void;
   reportData: BusinessReportData;
+  activeFilter?: FilterScope | null;
+  rawData: { receivables: Receivable[]; payables: Payable[] };
 }
 
-export default function ReportPreview({ open, onClose, reportData }: ReportPreviewProps) {
+function applyRFilter(list: Receivable[], f: FilterScope): Receivable[] {
+  return list.filter(r => {
+    if (f.riskLevel && f.riskLevel !== 'all' && r.riskLevel !== f.riskLevel) return false;
+    if (f.customerStatus && f.customerStatus !== 'all' && r.status !== f.customerStatus) return false;
+    if (f.receivableAmountMin != null && r.amount < f.receivableAmountMin) return false;
+    if (f.receivableAmountMax != null && r.amount > f.receivableAmountMax) return false;
+    return true;
+  });
+}
+
+function applyPFilter(list: Payable[], f: FilterScope): Payable[] {
+  return list.filter(p => {
+    if (f.pressureLevel && f.pressureLevel !== 'all') {
+      if (f.pressureLevel === 'high' && p.paymentPressure < 80) return false;
+      if (f.pressureLevel === 'medium' && (p.paymentPressure < 50 || p.paymentPressure >= 80)) return false;
+      if (f.pressureLevel === 'low' && p.paymentPressure >= 50) return false;
+    }
+    if (f.supplierStatus && f.supplierStatus !== 'all' && p.status !== f.supplierStatus) return false;
+    if (f.payableAmountMin != null && p.amount < f.payableAmountMin) return false;
+    if (f.payableAmountMax != null && p.amount > f.payableAmountMax) return false;
+    return true;
+  });
+}
+
+export default function ReportPreview({ open, onClose, reportData, activeFilter, rawData }: ReportPreviewProps) {
   const [checked, setChecked] = useState<Record<string, boolean>>(
     () => Object.fromEntries(CHAPTERS.map((c) => [c.key, c.defaultChecked]))
   );
+  const [useFilteredScope, setUseFilteredScope] = useState(false);
 
   const includedChapters = useMemo(
     () => CHAPTERS.filter((c) => checked[c.key]).map((c) => c.key),
     [checked]
   );
 
+  const scopeReceivables = useFilteredScope && activeFilter?.scope === 'customer'
+    ? applyRFilter(rawData.receivables, activeFilter) : rawData.receivables;
+  const scopePayables = useFilteredScope && activeFilter?.scope === 'supplier'
+    ? applyPFilter(rawData.payables, activeFilter) : rawData.payables;
+
+  const totalReceivable = useMemo(
+    () => scopeReceivables.reduce((s, r) => s + r.amount, 0),
+    [scopeReceivables]
+  );
+  const totalPayable = useMemo(
+    () => scopePayables.reduce((s, p) => s + p.amount, 0),
+    [scopePayables]
+  );
+
+  const filterDescription = useFilteredScope && activeFilter
+    ? `${activeFilter.label}（${activeFilter.appliedAt}）`
+    : undefined;
+
+  const scopedReportData: BusinessReportData = {
+    ...reportData,
+    receivables: scopeReceivables,
+    payables: scopePayables,
+    totalReceivable,
+    totalPayable,
+    filterDescription,
+  };
+
   const previewText = useMemo(
-    () => generateBusinessReport({ ...reportData, includedChapters }),
-    [reportData, includedChapters]
+    () => generateBusinessReport({ ...scopedReportData, includedChapters }),
+    [scopedReportData, includedChapters]
   );
 
   if (!open) return null;
@@ -51,6 +106,8 @@ export default function ReportPreview({ open, onClose, reportData }: ReportPrevi
     downloadReport(filename, previewText);
   };
 
+  const canUseFiltered = !!activeFilter;
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
@@ -68,6 +125,39 @@ export default function ReportPreview({ open, onClose, reportData }: ReportPrevi
 
         <div className="flex gap-6 min-h-[400px]">
           <div className="w-56 shrink-0 space-y-2">
+            <div className="mb-4 p-3 bg-white/5 rounded-xl space-y-2">
+              <span className="text-sm text-gray-300 font-medium block mb-2">数据口径</span>
+              <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="scope"
+                  checked={!useFilteredScope}
+                  onChange={() => setUseFilteredScope(false)}
+                  className="accent-ice-500"
+                />
+                <span className="text-xs text-gray-300">全量数据</span>
+              </label>
+              <label className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                !canUseFiltered ? 'opacity-40 cursor-not-allowed' : ''
+              }`}>
+                <input
+                  type="radio"
+                  name="scope"
+                  checked={useFilteredScope}
+                  onChange={() => canUseFiltered && setUseFilteredScope(true)}
+                  disabled={!canUseFiltered}
+                  className="accent-ice-500"
+                />
+                <span className="text-xs text-gray-300">当前筛选口径</span>
+              </label>
+              {useFilteredScope && activeFilter && (
+                <div className="mt-2 pt-2 border-t border-white/10 text-xs text-ice-400">
+                  <div>{activeFilter.label}</div>
+                  <div className="text-gray-500 mt-0.5">{activeFilter.appliedAt}</div>
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-gray-300 font-medium">选择章节</span>
               <button

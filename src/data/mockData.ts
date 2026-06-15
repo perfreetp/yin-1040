@@ -65,12 +65,12 @@ export const mockHistoricalCashFlow = [
 ];
 
 export const mockAlerts: Alert[] = [
-  { id: 'a1', type: 'funding_gap', level: 'red', title: '资金缺口预警', description: '7月预计资金缺口161万元，低于安全余额线，请立即安排融资或加速回款', createdAt: '2026-06-15 09:30', isRead: false, notes: [] },
-  { id: 'a2', type: 'customer_overdue', level: 'orange', title: '逾期回款提醒', description: '阿里巴巴集团应收98万元已逾期15天，回款概率仅45%，建议催收', createdAt: '2026-06-15 08:15', isRead: false, notes: [] },
-  { id: 'a3', type: 'supplier_pressure', level: 'orange', title: '高压力付款提醒', description: 'SK海力士应付280万元已逾期，付款压力指数98%，需优先处理', createdAt: '2026-06-14 16:45', isRead: true, notes: ['已联系财务安排付款'] },
-  { id: 'a4', type: 'funding_gap', level: 'yellow', title: '9月资金压力预警', description: '9月预测净现金流-127万元，建议提前规划资金调度', createdAt: '2026-06-14 10:00', isRead: true, notes: [] },
-  { id: 'a5', type: 'customer_overdue', level: 'yellow', title: '客户回款风险', description: '美团点评回款概率仅35%，风险等级D，建议收紧信用额度', createdAt: '2026-06-13 14:20', isRead: true, notes: ['已通知销售部门'] },
-  { id: 'a6', type: 'funding_gap', level: 'green', title: '10月资金改善', description: '10月预计净现金流222万元，资金状况改善', createdAt: '2026-06-13 09:00', isRead: true, notes: [] },
+  { id: 'a1', type: 'funding_gap', level: 'red', title: '资金缺口预警', description: '7月预计资金缺口161万元，低于安全余额线，请立即安排融资或加速回款', createdAt: '2026-06-15 09:30', isRead: false, notes: [], handlingStatus: 'unhandled', archived: false },
+  { id: 'a2', type: 'customer_overdue', level: 'orange', title: '逾期回款提醒', description: '阿里巴巴集团应收98万元已逾期15天，回款概率仅45%，建议催收', createdAt: '2026-06-15 08:15', isRead: false, notes: [], handlingStatus: 'unhandled', archived: false },
+  { id: 'a3', type: 'supplier_pressure', level: 'orange', title: '高压力付款提醒', description: 'SK海力士应付280万元已逾期，付款压力指数98%，需优先处理', createdAt: '2026-06-14 16:45', isRead: true, notes: ['已联系财务安排付款'], handlingStatus: 'noted', archived: false },
+  { id: 'a4', type: 'funding_gap', level: 'yellow', title: '9月资金压力预警', description: '9月预测净现金流-127万元，建议提前规划资金调度', createdAt: '2026-06-14 10:00', isRead: true, notes: [], handlingStatus: 'read', archived: false },
+  { id: 'a5', type: 'customer_overdue', level: 'yellow', title: '客户回款风险', description: '美团点评回款概率仅35%，风险等级D，建议收紧信用额度', createdAt: '2026-06-13 14:20', isRead: true, notes: ['已通知销售部门'], handlingStatus: 'noted', archived: false },
+  { id: 'a6', type: 'funding_gap', level: 'green', title: '10月资金改善', description: '10月预计净现金流222万元，资金状况改善', createdAt: '2026-06-13 09:00', isRead: true, notes: [], handlingStatus: 'read', archived: false },
 ];
 
 export const mockPredictionVersions: PredictionVersion[] = [

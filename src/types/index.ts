@@ -4,6 +4,24 @@ export type RiskLevel = 'A' | 'B' | 'C' | 'D';
 export type Scenario = 'optimistic' | 'neutral' | 'pessimistic';
 export type AlertLevel = 'green' | 'yellow' | 'orange' | 'red';
 export type AlertType = 'balance_safety' | 'funding_gap' | 'customer_overdue' | 'supplier_pressure' | 'anomaly';
+export type AlertHandlingStatus = 'unhandled' | 'noted' | 'read' | 'resolved' | 'archived';
+
+export interface FilterScope {
+  scope: 'all' | 'customer' | 'supplier';
+  // customer filters
+  riskLevel?: RiskLevel | 'all';
+  customerStatus?: ReceivableStatus | 'all';
+  receivableAmountMin?: number;
+  receivableAmountMax?: number;
+  // supplier filters
+  pressureLevel?: 'all' | 'high' | 'medium' | 'low';
+  supplierStatus?: PayableStatus | 'all';
+  payableAmountMin?: number;
+  payableAmountMax?: number;
+  // description for display
+  label: string;
+  appliedAt: string;
+}
 
 export interface Receivable {
   id: string;
@@ -53,6 +71,9 @@ export interface Alert {
   createdAt: string;
   isRead: boolean;
   notes: string[];
+  handlingStatus: AlertHandlingStatus;
+  archived?: boolean;
+  archivedAt?: string;
   relatedEntityId?: string;
   relatedEntityType?: 'receivable' | 'payable' | 'prediction';
 }
@@ -87,4 +108,5 @@ export interface PersistedState {
   safetyBalance: SafetyBalance;
   scenarioSimulations: ScenarioSimulation[];
   currentBalance: number;
+  activeFilter?: FilterScope | null;
 }

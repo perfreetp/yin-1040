@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { formatAmountFull } from '@/data/mockData';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -44,6 +44,7 @@ function getPressureTextColor(p: number) {
 
 export default function SupplierPayment() {
   const payables = useStore((s) => s.payables);
+  const { setActiveFilter, clearActiveFilter } = useStore();
   const [pressureFilter, setPressureFilter] = useState('全部');
   const [statusFilter, setStatusFilter] = useState('全部');
   const [amountMin, setAmountMin] = useState('');
@@ -67,6 +68,47 @@ export default function SupplierPayment() {
     }
     return data;
   }, [payables, pressureFilter, statusFilter, amountMin, amountMax, sortBy]);
+
+  useEffect(() => {
+    const isPressureApplied = pressureFilter !== '全部';
+    const isStatusApplied = statusFilter !== '全部';
+    const isAmountMinApplied = amountMin !== '' && !isNaN(parseFloat(amountMin));
+    const isAmountMaxApplied = amountMax !== '' && !isNaN(parseFloat(amountMax));
+    const anyFilterApplied = isPressureApplied || isStatusApplied || isAmountMinApplied || isAmountMaxApplied;
+    const hasFilteredDiff = filtered.length !== payables.length;
+
+    if (anyFilterApplied || hasFilteredDiff) {
+      const labelParts: string[] = ['应付筛选：'];
+      const parts: string[] = [];
+      if (isPressureApplied) {
+        if (pressureFilter === '高压(≥80)') parts.push('高压');
+        else if (pressureFilter === '中压(50-79)') parts.push('中压');
+        else if (pressureFilter === '低压(<50)') parts.push('低压');
+      }
+      if (isStatusApplied) parts.push(statusFilter);
+      if (isAmountMinApplied && isAmountMaxApplied) parts.push(`${amountMin}-${amountMax}万`);
+      else if (isAmountMinApplied) parts.push(`≥${amountMin}万`);
+      else if (isAmountMaxApplied) parts.push(`≤${amountMax}万`);
+      labelParts.push(parts.length ? parts.join(' + ') : '自定义');
+
+      let pressureLevel: 'all' | 'high' | 'medium' | 'low' = 'all';
+      if (pressureFilter === '高压(≥80)') pressureLevel = 'high';
+      else if (pressureFilter === '中压(50-79)') pressureLevel = 'medium';
+      else if (pressureFilter === '低压(<50)') pressureLevel = 'low';
+
+      setActiveFilter({
+        scope: 'supplier',
+        pressureLevel,
+        supplierStatus: isStatusApplied ? (PAY_STATUS_MAP[statusFilter] as 'pending' | 'partial' | 'paid' | 'overdue') : 'all',
+        payableAmountMin: isAmountMinApplied ? parseFloat(amountMin) * 10000 : undefined,
+        payableAmountMax: isAmountMaxApplied ? parseFloat(amountMax) * 10000 : undefined,
+        label: labelParts.join(''),
+        appliedAt: new Date().toLocaleString('zh-CN'),
+      });
+    } else {
+      clearActiveFilter();
+    }
+  }, [filtered.length, payables.length, pressureFilter, statusFilter, amountMin, amountMax, setActiveFilter, clearActiveFilter]);
 
   const totalPayables = filtered.reduce((s, p) => s + p.amount, 0);
   const highPressure = filtered.filter((p) => p.paymentPressure >= 80).length;

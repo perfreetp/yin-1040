@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { formatAmountFull, getRiskColor, getRiskBg, getProbabilityColor, getProbabilityBg } from '@/data/mockData';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -41,6 +41,7 @@ function statusStyle(s: string): string {
 
 export default function CustomerCollection() {
   const receivables = useStore((s) => s.receivables);
+  const { setActiveFilter, clearActiveFilter } = useStore();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [riskFilter, setRiskFilter] = useState('全部');
   const [statusFilter, setStatusFilter] = useState('全部');
@@ -69,6 +70,38 @@ export default function CustomerCollection() {
     }
     return data;
   }, [receivables, riskFilter, statusFilter, amountMin, amountMax, sortBy]);
+
+  useEffect(() => {
+    const isRiskApplied = riskFilter !== '全部';
+    const isStatusApplied = statusFilter !== '全部';
+    const isAmountMinApplied = amountMin !== '' && !isNaN(parseFloat(amountMin));
+    const isAmountMaxApplied = amountMax !== '' && !isNaN(parseFloat(amountMax));
+    const anyFilterApplied = isRiskApplied || isStatusApplied || isAmountMinApplied || isAmountMaxApplied;
+    const hasFilteredDiff = filtered.length !== receivables.length;
+
+    if (anyFilterApplied || hasFilteredDiff) {
+      const labelParts: string[] = ['应收筛选：'];
+      const parts: string[] = [];
+      if (isRiskApplied) parts.push(`风险${riskFilter}级`);
+      if (isStatusApplied) parts.push(statusFilter);
+      if (isAmountMinApplied && isAmountMaxApplied) parts.push(`${amountMin}-${amountMax}万`);
+      else if (isAmountMinApplied) parts.push(`≥${amountMin}万`);
+      else if (isAmountMaxApplied) parts.push(`≤${amountMax}万`);
+      labelParts.push(parts.length ? parts.join(' + ') : '自定义');
+
+      setActiveFilter({
+        scope: 'customer',
+        riskLevel: isRiskApplied ? (riskFilter as 'A' | 'B' | 'C' | 'D') : 'all',
+        customerStatus: isStatusApplied ? (STATUS_MAP[statusFilter] as 'pending' | 'partial' | 'received' | 'overdue') : 'all',
+        receivableAmountMin: isAmountMinApplied ? parseFloat(amountMin) * 10000 : undefined,
+        receivableAmountMax: isAmountMaxApplied ? parseFloat(amountMax) * 10000 : undefined,
+        label: labelParts.join(''),
+        appliedAt: new Date().toLocaleString('zh-CN'),
+      });
+    } else {
+      clearActiveFilter();
+    }
+  }, [filtered.length, receivables.length, riskFilter, statusFilter, amountMin, amountMax, setActiveFilter, clearActiveFilter]);
 
   const high = filtered.filter((r) => r.collectionProbability >= 80).length;
   const mid = filtered.filter((r) => r.collectionProbability >= 60 && r.collectionProbability < 80).length;
