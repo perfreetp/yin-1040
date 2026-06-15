@@ -13,6 +13,7 @@ export interface BusinessReportData {
   safetyBalance: SafetyBalance;
   alertFilter?: string;
   generatedAt: string;
+  includedChapters?: string[];
 }
 
 export function generateBusinessReport(data: BusinessReportData): string {
@@ -60,6 +61,8 @@ export function generateBusinessReport(data: BusinessReportData): string {
       }).join('\n')
     : '  （暂无锁定版本）';
 
+  const inc = (key: string) => !data.includedChapters || data.includedChapters.includes(key);
+
   const lines: string[] = [
     '══════════════════════════════════════════════════════════════',
     '              CASHFLOW AI 企业现金流经营摘要',
@@ -68,86 +71,100 @@ export function generateBusinessReport(data: BusinessReportData): string {
     `生成时间：${data.generatedAt}`,
     alertFilter ? `当前筛选条件：${alertFilter}` : '',
     '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '一、核心经营指标',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    `  当前可用资金：${fmt(currentBalance)}`,
-    `  应收总额：    ${fmt(totalReceivable)}（共 ${receivables.length} 笔）`,
-    `  应付总额：    ${fmt(totalPayable)}（共 ${payables.length} 笔）`,
-    `  安全余额线：  ${fmt(safetyBalance.amount)}（设置于 ${safetyBalance.updatedAt}）`,
-    `  未来6月净流： ${netFlow >= 0 ? '+' : ''}${fmt(netFlow)}`,
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '二、未来资金缺口分析',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    `  缺口月份数：  ${gapMonths.length} / ${neutral.length} 个月`,
-    `  累计缺口额：  ${fmt(totalGap)}`,
-    '',
-    ...neutral.map((p) => {
-      const tag = p.gap > 0 ? ` ⚠️ 缺口${fmt(p.gap)}` : p.netFlow >= 0 ? ` ✅ 净流入${fmt(p.netFlow)}` : ` ⚠️ 净流出${fmt(-p.netFlow)}`;
-      return `  ${p.month}：流入${fmt(p.inflow)}，流出${fmt(p.outflow)}${tag}`;
-    }),
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '三、客户回款 Top 风险',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    topRiskCustomers.length > 0
-      ? topRiskCustomers.map((r, i) =>
-          `  ${i + 1}. ${r.customerName}（风险${r.riskLevel}）`
-          + `\n     金额：${fmt(r.amount)}，到期日：${r.dueDate}`
-          + `\n     回款概率：${fmtPct(r.collectionProbability)}，状态：${r.status}`
-          + (r.anomalyReason ? `\n     异常：${r.anomalyReason}` : '')
-        ).join('\n\n')
-      : '  （暂无高风险客户）',
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '四、供应商付款 Top 压力',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    topPressureSuppliers.length > 0
-      ? topPressureSuppliers.map((p, i) =>
-          `  ${i + 1}. ${p.supplierName}（压力指数${p.paymentPressure}%）`
-          + `\n     金额：${fmt(p.amount)}，到期日：${p.dueDate}`
-          + `\n     优先级：P${p.priority}，状态：${p.status}`
-        ).join('\n\n')
-      : '  （暂无高压供应商）',
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '五、预警汇总',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    `  预警总数：    ${alerts.length} 条`,
-    `  未读预警：    ${unreadAlerts.length} 条`,
-    `  红色预警：    ${redAlerts.length} 条`,
-    `  橙色预警：    ${orangeAlerts.length} 条`,
-    '',
-    ...alerts.slice(0, 8).map((a) => {
-      const icon = a.level === 'red' ? '🔴' : a.level === 'orange' ? '🟠' : a.level === 'yellow' ? '🟡' : '🟢';
-      const readTag = a.isRead ? '[已读]' : '[未读]';
-      return `  ${icon} ${readTag} ${a.title}（${a.createdAt}）\n     ${a.description}` + (a.notes.length ? `\n     备注：${a.notes.join('；')}` : '');
-    }),
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '六、情景推演结论',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    scenarioSummary,
-    '',
-    scenarios.length > 0 ? (() => {
-      const baselineWorst = Math.max(...neutral.map((p) => p.gap), 0);
-      const simWorst = Math.max(...scenarios.flatMap((s) => s.adjustedPredictions.map((p) => p.gap)), 0);
-      return `  基准方案最大缺口：${fmt(baselineWorst)}\n  模拟方案最大缺口：${fmt(simWorst)}\n  风险变化：${simWorst > baselineWorst ? '↑ 恶化' + fmt(simWorst - baselineWorst) : simWorst < baselineWorst ? '↓ 改善' + fmt(baselineWorst - simWorst) : '→ 持平'}`;
-    })() : '',
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '七、预测版本追踪',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-    versionSummary,
-    '',
+    ...(inc('core') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '一、核心经营指标',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      `  当前可用资金：${fmt(currentBalance)}`,
+      `  应收总额：    ${fmt(totalReceivable)}（共 ${receivables.length} 笔）`,
+      `  应付总额：    ${fmt(totalPayable)}（共 ${payables.length} 笔）`,
+      `  安全余额线：  ${fmt(safetyBalance.amount)}（设置于 ${safetyBalance.updatedAt}）`,
+      `  未来6月净流： ${netFlow >= 0 ? '+' : ''}${fmt(netFlow)}`,
+      '',
+    ] : []),
+    ...(inc('gap') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '二、未来资金缺口分析',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      `  缺口月份数：  ${gapMonths.length} / ${neutral.length} 个月`,
+      `  累计缺口额：  ${fmt(totalGap)}`,
+      '',
+      ...neutral.map((p) => {
+        const tag = p.gap > 0 ? ` ⚠️ 缺口${fmt(p.gap)}` : p.netFlow >= 0 ? ` ✅ 净流入${fmt(p.netFlow)}` : ` ⚠️ 净流出${fmt(-p.netFlow)}`;
+        return `  ${p.month}：流入${fmt(p.inflow)}，流出${fmt(p.outflow)}${tag}`;
+      }),
+      '',
+    ] : []),
+    ...(inc('customer') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '三、客户回款 Top 风险',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      topRiskCustomers.length > 0
+        ? topRiskCustomers.map((r, i) =>
+            `  ${i + 1}. ${r.customerName}（风险${r.riskLevel}）`
+            + `\n     金额：${fmt(r.amount)}，到期日：${r.dueDate}`
+            + `\n     回款概率：${fmtPct(r.collectionProbability)}，状态：${r.status}`
+            + (r.anomalyReason ? `\n     异常：${r.anomalyReason}` : '')
+          ).join('\n\n')
+        : '  （暂无高风险客户）',
+      '',
+    ] : []),
+    ...(inc('supplier') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '四、供应商付款 Top 压力',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      topPressureSuppliers.length > 0
+        ? topPressureSuppliers.map((p, i) =>
+            `  ${i + 1}. ${p.supplierName}（压力指数${p.paymentPressure}%）`
+            + `\n     金额：${fmt(p.amount)}，到期日：${p.dueDate}`
+            + `\n     优先级：P${p.priority}，状态：${p.status}`
+          ).join('\n\n')
+        : '  （暂无高压供应商）',
+      '',
+    ] : []),
+    ...(inc('alerts') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '五、预警汇总',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      `  预警总数：    ${alerts.length} 条`,
+      `  未读预警：    ${unreadAlerts.length} 条`,
+      `  红色预警：    ${redAlerts.length} 条`,
+      `  橙色预警：    ${orangeAlerts.length} 条`,
+      '',
+      ...alerts.slice(0, 8).map((a) => {
+        const icon = a.level === 'red' ? '🔴' : a.level === 'orange' ? '🟠' : a.level === 'yellow' ? '🟡' : '🟢';
+        const readTag = a.isRead ? '[已读]' : '[未读]';
+        return `  ${icon} ${readTag} ${a.title}（${a.createdAt}）\n     ${a.description}` + (a.notes.length ? `\n     备注：${a.notes.join('；')}` : '');
+      }),
+      '',
+    ] : []),
+    ...(inc('scenario') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '六、情景推演结论',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      scenarioSummary,
+      '',
+      scenarios.length > 0 ? (() => {
+        const baselineWorst = Math.max(...neutral.map((p) => p.gap), 0);
+        const simWorst = Math.max(...scenarios.flatMap((s) => s.adjustedPredictions.map((p) => p.gap)), 0);
+        return `  基准方案最大缺口：${fmt(baselineWorst)}\n  模拟方案最大缺口：${fmt(simWorst)}\n  风险变化：${simWorst > baselineWorst ? '↑ 恶化' + fmt(simWorst - baselineWorst) : simWorst < baselineWorst ? '↓ 改善' + fmt(baselineWorst - simWorst) : '→ 持平'}`;
+      })() : '',
+      '',
+    ] : []),
+    ...(inc('versions') ? [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '七、预测版本追踪',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      versionSummary,
+      '',
+    ] : []),
     '══════════════════════════════════════════════════════════════',
     '                    本报告由 CashFlow AI 自动生成',
     '══════════════════════════════════════════════════════════════',

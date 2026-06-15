@@ -175,24 +175,44 @@ function generateAlerts(
   payables: Payable[],
   predictions: CashFlowPrediction[],
   safetyAmount: number,
-  existingAlerts: Alert[]
+  existingAlerts: Alert[],
+  currentBalance: number
 ): Alert[] {
-  const alerts: Alert[] = [...existingAlerts];
+  const alerts: Alert[] = existingAlerts.filter(
+    (a) => a.type !== 'balance_safety'
+  );
   const today = new Date().toISOString().slice(0, 10);
-  const existingKeys = new Set(existingAlerts.map((a) => `${a.type}|${a.relatedEntityId || ''}|${a.title}`));
+  const ts = today + ' ' + new Date().toTimeString().slice(0, 5);
+  const existingKeys = new Set(alerts.map((a) => `${a.type}|${a.relatedEntityId || ''}|${a.title}`));
+
+  if (currentBalance < safetyAmount) {
+    const deficit = safetyAmount - currentBalance;
+    const pct = ((deficit / safetyAmount) * 100).toFixed(1);
+    const level: AlertLevel = deficit >= safetyAmount * 0.5 ? 'red' : deficit >= safetyAmount * 0.2 ? 'orange' : 'yellow';
+    alerts.unshift({
+      id: 'alert-balance-safety',
+      type: 'balance_safety',
+      level,
+      title: '当前资金低于安全余额',
+      description: `当前可用资金¥${(currentBalance / 10000).toFixed(1)}万，低于安全余额线¥${(safetyAmount / 10000).toFixed(1)}万，缺口${pct}%，请尽快安排资金`,
+      createdAt: ts,
+      isRead: false,
+      notes: [],
+    });
+  }
 
   predictions.filter((p) => p.scenario === 'neutral').forEach((p) => {
     if (p.gap > 0) {
       const level: AlertLevel = p.gap >= safetyAmount * 0.5 ? 'red' : p.gap >= safetyAmount * 0.2 ? 'orange' : 'yellow';
       const key = `funding_gap|${p.id}|${p.month}资金缺口`;
       if (!existingKeys.has(key)) {
-        alerts.unshift({
+        alerts.push({
           id: uuid(),
           type: 'funding_gap',
           level,
           title: `${p.month.slice(5)}月资金缺口预警`,
           description: `预计缺口¥${(p.gap / 10000).toFixed(1)}万，${p.gap >= safetyAmount ? '已超过安全余额线' : '接近安全余额线'}，请提前安排资金调度`,
-          createdAt: today + ' ' + new Date().toTimeString().slice(0, 5),
+          createdAt: ts,
           isRead: false,
           notes: [],
           relatedEntityId: p.id,
@@ -205,16 +225,16 @@ function generateAlerts(
   receivables.forEach((r) => {
     if (r.status === 'overdue' || r.isAnomaly) {
       const overdueDays = Math.max(0, daysBetween(today, r.dueDate));
-      const level: AlertLevel = overdueDays > 30 ? 'red' : overdueDays > 10 ? 'orange' : r.isAnomaly ? 'yellow' : 'yellow';
+      const level: AlertLevel = overdueDays > 30 ? 'red' : overdueDays > 10 ? 'orange' : 'yellow';
       const key = `customer_overdue|${r.id}|${r.customerName}`;
       if (!existingKeys.has(key)) {
-        alerts.unshift({
+        alerts.push({
           id: uuid(),
           type: 'customer_overdue',
           level,
           title: `${r.customerName} 回款风险`,
           description: `应收¥${(r.amount / 10000).toFixed(1)}万，${overdueDays > 0 ? `已逾期${overdueDays}天，` : ''}回款概率${r.collectionProbability}%，风险等级${r.riskLevel}`,
-          createdAt: today + ' ' + new Date().toTimeString().slice(0, 5),
+          createdAt: ts,
           isRead: false,
           notes: [],
           relatedEntityId: r.id,
@@ -229,13 +249,13 @@ function generateAlerts(
       const level: AlertLevel = p.paymentPressure >= 90 || p.status === 'overdue' ? 'orange' : 'yellow';
       const key = `supplier_pressure|${p.id}|${p.supplierName}`;
       if (!existingKeys.has(key)) {
-        alerts.unshift({
+        alerts.push({
           id: uuid(),
           type: 'supplier_pressure',
           level,
           title: `${p.supplierName} 付款压力高`,
           description: `应付¥${(p.amount / 10000).toFixed(1)}万，付款压力指数${p.paymentPressure}%${p.status === 'overdue' ? '，已逾期' : ''}，建议优先安排`,
-          createdAt: today + ' ' + new Date().toTimeString().slice(0, 5),
+          createdAt: ts,
           isRead: false,
           notes: [],
           relatedEntityId: p.id,
@@ -298,7 +318,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
     set((s) => {
       const newReceivables = detectAnomalies([...s.receivables, r]);
       const newPredictions = generatePredictions(newReceivables, s.payables);
-      const newAlerts = generateAlerts(newReceivables, s.payables, newPredictions, s.safetyBalance.amount, s.alerts);
+      const newAlerts = generateAlerts(newReceivables, s.payables, newPredictions, s.safetyBalance.amount, s.alerts, s.currentBalance);
       const next = { ...s, receivables: newReceivables, predictions: newPredictions, alerts: newAlerts };
       saveToStorage(next);
       return next;
@@ -315,7 +335,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
       };
       const newPayables = [...s.payables, pWithPressure].sort((a, b) => a.priority - b.priority);
       const newPredictions = generatePredictions(s.receivables, newPayables);
-      const newAlerts = generateAlerts(s.receivables, newPayables, newPredictions, s.safetyBalance.amount, s.alerts);
+      const newAlerts = generateAlerts(s.receivables, newPayables, newPredictions, s.safetyBalance.amount, s.alerts, s.currentBalance);
       const next = { ...s, payables: newPayables, predictions: newPredictions, alerts: newAlerts };
       saveToStorage(next);
       return next;
@@ -325,7 +345,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
   setSafetyBalance: (amount) => {
     set((s) => {
       const safety = { amount, updatedAt: new Date().toISOString().slice(0, 10) };
-      const newAlerts = generateAlerts(s.receivables, s.payables, s.predictions, amount, s.alerts);
+      const newAlerts = generateAlerts(s.receivables, s.payables, s.predictions, amount, s.alerts, s.currentBalance);
       const next = { ...s, safetyBalance: safety, alerts: newAlerts };
       saveToStorage(next);
       return next;
@@ -394,7 +414,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
       const newReceivables = s.receivables.map((r) =>
         r.id === receivableId ? { ...r, isAnomaly: !r.isAnomaly, anomalyReason: r.isAnomaly ? undefined : '人工标记' } : r
       );
-      const newAlerts = generateAlerts(newReceivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts);
+      const newAlerts = generateAlerts(newReceivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts, s.currentBalance);
       const next = { ...s, receivables: newReceivables, alerts: newAlerts };
       saveToStorage(next);
       return next;
@@ -438,7 +458,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
         });
 
       const newPredictions = generatePredictions(enrichedReceivables, enrichedPayables);
-      const newAlerts = generateAlerts(enrichedReceivables, enrichedPayables, newPredictions, s.safetyBalance.amount, []);
+      const newAlerts = generateAlerts(enrichedReceivables, enrichedPayables, newPredictions, s.safetyBalance.amount, [], s.currentBalance);
       const next = {
         ...s,
         receivables: enrichedReceivables,
@@ -471,7 +491,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
 
   refreshAlerts: () => {
     set((s) => {
-      const next = { ...s, alerts: generateAlerts(s.receivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts) };
+      const next = { ...s, alerts: generateAlerts(s.receivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts, s.currentBalance) };
       saveToStorage(next);
       return next;
     });
@@ -480,7 +500,7 @@ export const useStore = create<CashFlowStore>((set, get) => ({
   regeneratePredictions: () => {
     set((s) => {
       const newPredictions = generatePredictions(s.receivables, s.payables);
-      const newAlerts = generateAlerts(s.receivables, s.payables, newPredictions, s.safetyBalance.amount, s.alerts);
+      const newAlerts = generateAlerts(s.receivables, s.payables, newPredictions, s.safetyBalance.amount, s.alerts, s.currentBalance);
       const next = { ...s, predictions: newPredictions, alerts: newAlerts };
       saveToStorage(next);
       return next;
@@ -489,7 +509,8 @@ export const useStore = create<CashFlowStore>((set, get) => ({
 
   setCurrentBalance: (amount) => {
     set((s) => {
-      const next = { ...s, currentBalance: amount };
+      const newAlerts = generateAlerts(s.receivables, s.payables, s.predictions, s.safetyBalance.amount, s.alerts, amount);
+      const next = { ...s, currentBalance: amount, alerts: newAlerts };
       saveToStorage(next);
       return next;
     });

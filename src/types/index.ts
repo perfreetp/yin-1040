@@ -3,7 +3,7 @@ export type PayableStatus = 'pending' | 'partial' | 'paid' | 'overdue';
 export type RiskLevel = 'A' | 'B' | 'C' | 'D';
 export type Scenario = 'optimistic' | 'neutral' | 'pessimistic';
 export type AlertLevel = 'green' | 'yellow' | 'orange' | 'red';
-export type AlertType = 'funding_gap' | 'customer_overdue' | 'supplier_pressure' | 'anomaly';
+export type AlertType = 'balance_safety' | 'funding_gap' | 'customer_overdue' | 'supplier_pressure' | 'anomaly';
 
 export interface Receivable {
   id: string;

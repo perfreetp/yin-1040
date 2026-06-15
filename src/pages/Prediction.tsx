@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import {
   TrendingUp, Shield, Lock, Clock, AlertTriangle, Save,
-  ChevronRight, RefreshCw, X, Edit3,
+  ChevronRight, RefreshCw, X, Edit3, GitCompare, ArrowLeftRight, Download,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { formatAmount, formatAmountFull } from '@/data/mockData';
@@ -29,6 +29,22 @@ function calcDeviationRate(predicted: number, actual: number): number {
   return ((actual - predicted) / Math.abs(predicted)) * 100;
 }
 
+function diffColor(diff: number | null, reverse = false) {
+  if (diff === null) return 'text-gray-500';
+  const good = reverse ? diff < 0 : diff > 0;
+  const bad = reverse ? diff > 0 : diff < 0;
+  return good ? 'text-emerald-400' : bad ? 'text-coral-500' : 'text-gray-400';
+}
+
+function diffText(diff: number | null) {
+  if (diff === null) return '-';
+  return `${diff > 0 ? '+' : ''}${formatAmount(diff)}`;
+}
+
+function netColor(val: number | null) {
+  return val === null ? 'text-gray-500' : val >= 0 ? 'text-ice-400' : 'text-coral-500';
+}
+
 export default function Prediction() {
   const {
     predictions, safetyBalance, predictionVersions,
@@ -41,6 +57,8 @@ export default function Prediction() {
   const [versionName, setVersionName] = useState('');
   const [selectedVersion, setSelectedVersion] = useState<PredictionVersion | null>(null);
   const [editingActuals, setEditingActuals] = useState<Record<string, { inflow: string; outflow: string }>>({});
+  const [compareA, setCompareA] = useState('');
+  const [compareB, setCompareB] = useState('');
 
   useEffect(() => {
     setSafetyInput(String(safetyBalance.amount / 10000));
@@ -117,6 +135,52 @@ export default function Prediction() {
   const closeModal = () => {
     setSelectedVersion(null);
     setEditingActuals({});
+  };
+
+  const compareData = useMemo(() => {
+    if (!compareA || !compareB) return [];
+    const vA = predictionVersions.find((v) => v.id === compareA);
+    const vB = predictionVersions.find((v) => v.id === compareB);
+    if (!vA || !vB) return [];
+    const monthSet = new Set([...vA.predictions.map((p) => p.month), ...vB.predictions.map((p) => p.month)]);
+    const months = Array.from(monthSet).sort();
+    return months.map((month) => {
+      const pA = vA.predictions.find((p) => p.month === month);
+      const pB = vB.predictions.find((p) => p.month === month);
+      return {
+        month,
+        label: formatMonth(month),
+        inflowA: pA?.inflow ?? null,
+        inflowB: pB?.inflow ?? null,
+        outflowA: pA?.outflow ?? null,
+        outflowB: pB?.outflow ?? null,
+        netA: pA?.netFlow ?? null,
+        netB: pB?.netFlow ?? null,
+      };
+    });
+  }, [compareA, compareB, predictionVersions]);
+
+  const compareChartData = useMemo(() => {
+    return compareData.map((d) => ({ label: d.label, A净流: d.netA ?? 0, B净流: d.netB ?? 0 }));
+  }, [compareData]);
+
+  const handleExportCompare = () => {
+    if (compareData.length === 0) return;
+    const vA = predictionVersions.find((v) => v.id === compareA);
+    const vB = predictionVersions.find((v) => v.id === compareB);
+    const fmt = (v: number | null) => v !== null ? formatAmountFull(v) : '-';
+    const lines = [`版本对比: ${vA?.name} vs ${vB?.name}`, '', '月份\tA流入\tB流入\t流入差异\tA流出\tB流出\t流出差异\tA净流\tB净流\t净流差异'];
+    compareData.forEach((d) => {
+      const infD = d.inflowA !== null && d.inflowB !== null ? d.inflowB - d.inflowA : null;
+      const outD = d.outflowA !== null && d.outflowB !== null ? d.outflowB - d.outflowA : null;
+      const netD = d.netA !== null && d.netB !== null ? d.netB - d.netA : null;
+      lines.push([d.label, fmt(d.inflowA), fmt(d.inflowB), fmt(infD), fmt(d.outflowA), fmt(d.outflowB), fmt(outD), fmt(d.netA), fmt(d.netB), fmt(netD)].join('\t'));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `版本对比_${vA?.name}_${vB?.name}.txt`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -293,6 +357,94 @@ export default function Prediction() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {predictionVersions.length > 0 && (
+        <div className="glass-card rounded-2xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <GitCompare className="w-5 h-5 text-ice-500" />
+            版本对比
+          </h2>
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            {(['A', 'B'] as const).map((slot) => {
+              const val = slot === 'A' ? compareA : compareB;
+              const set = slot === 'A' ? setCompareA : setCompareB;
+              return (
+                <div key={slot} className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm">版本 {slot}</span>
+                  <select value={val} onChange={(e) => set(e.target.value)} className="bg-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none border border-white/10 focus:border-ice-500/50">
+                    <option value="">选择版本</option>
+                    {predictionVersions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+            <ArrowLeftRight className="w-5 h-5 text-gray-500" />
+            {compareData.length > 0 && (
+              <button onClick={handleExportCompare} className="px-4 py-2 bg-ice-500/20 hover:bg-ice-500/30 text-ice-400 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ml-auto">
+                <Download className="w-4 h-4" />导出对比结果
+              </button>
+            )}
+          </div>
+          {compareData.length > 0 && (
+            <>
+              <div className="overflow-x-auto mb-6">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      {['月份', 'A流入', 'B流入', '流入差异', 'A流出', 'B流出', '流出差异', 'A净流', 'B净流', '净流差异'].map((h, i) => (
+                        <th key={h} className={`${i === 0 ? 'text-left' : 'text-right'} py-3 px-2 text-gray-400 font-medium`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareData.map((d) => {
+                      const infDiff = d.inflowA !== null && d.inflowB !== null ? d.inflowB - d.inflowA : null;
+                      const outDiff = d.outflowA !== null && d.outflowB !== null ? d.outflowB - d.outflowA : null;
+                      const netDiff = d.netA !== null && d.netB !== null ? d.netB - d.netA : null;
+                      return (
+                        <tr key={d.month} className="border-b border-white/5 hover:bg-white/5">
+                          <td className="py-3 px-2 text-white font-medium">{d.label}</td>
+                          <td className="py-3 px-2 text-right font-mono text-gray-300">{d.inflowA !== null ? formatAmount(d.inflowA) : '-'}</td>
+                          <td className="py-3 px-2 text-right font-mono text-gray-300">{d.inflowB !== null ? formatAmount(d.inflowB) : '-'}</td>
+                          <td className={`py-3 px-2 text-right font-mono font-medium ${diffColor(infDiff)}`}>{diffText(infDiff)}</td>
+                          <td className="py-3 px-2 text-right font-mono text-gray-300">{d.outflowA !== null ? formatAmount(d.outflowA) : '-'}</td>
+                          <td className="py-3 px-2 text-right font-mono text-gray-300">{d.outflowB !== null ? formatAmount(d.outflowB) : '-'}</td>
+                          <td className={`py-3 px-2 text-right font-mono font-medium ${diffColor(outDiff, true)}`}>{diffText(outDiff)}</td>
+                          <td className={`py-3 px-2 text-right font-mono ${netColor(d.netA)}`}>{d.netA !== null ? formatAmount(d.netA) : '-'}</td>
+                          <td className={`py-3 px-2 text-right font-mono ${netColor(d.netB)}`}>{d.netB !== null ? formatAmount(d.netB) : '-'}</td>
+                          <td className={`py-3 px-2 text-right font-mono font-medium ${diffColor(netDiff)}`}>{diffText(netDiff)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="glass-card rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+                  <ArrowLeftRight className="w-4 h-4 text-ice-500" />
+                  净流对比
+                </h3>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={compareChartData} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v: number) => formatAmount(v)} />
+                    <Tooltip
+                      contentStyle={{ background: 'rgba(10,30,60,0.95)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 12 }}
+                      labelStyle={{ color: '#fff' }}
+                      formatter={(value: number) => [formatAmountFull(value), '']}
+                    />
+                    <Legend />
+                    <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
+                    <Bar dataKey="A净流" fill="#00D4FF" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="B净流" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </div>
       )}
 

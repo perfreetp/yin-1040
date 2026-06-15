@@ -11,6 +11,7 @@ import { useStore } from '@/store/useStore';
 import { getAlertLevelColor, getAlertLevelBorder, formatAmount } from '@/data/mockData';
 import { generateBusinessReport, downloadReport } from '@/utils/report';
 import type { AlertLevel, AlertType } from '@/types';
+import ReportPreview from '@/components/ReportPreview';
 
 const levelConfig = [
   { level: 'green' as const, label: '低风险', bg: 'bg-emerald-500', text: 'text-emerald-400' },
@@ -20,6 +21,7 @@ const levelConfig = [
 ];
 
 const typeBadgeConfig: Record<AlertType, { label: string; bg: string; text: string }> = {
+  balance_safety: { label: '资金安全', bg: 'bg-coral-500/20', text: 'text-coral-400' },
   funding_gap: { label: '资金缺口', bg: 'bg-coral-500/20', text: 'text-coral-400' },
   customer_overdue: { label: '客户逾期', bg: 'bg-amber-500/20', text: 'text-amber-400' },
   supplier_pressure: { label: '供应商压力', bg: 'bg-ice-500/20', text: 'text-ice-400' },
@@ -47,6 +49,7 @@ export default function AlertPage() {
   const [versionName, setVersionName] = useState('');
   const [levelFilter, setLevelFilter] = useState<'all' | AlertLevel>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const riskCounts = useMemo(() => {
     const counts = { green: 0, yellow: 0, orange: 0, red: 0 };
@@ -392,12 +395,40 @@ export default function AlertPage() {
         </div>
       )}
 
-      <button
-        onClick={handleExport}
-        className="w-full py-3 bg-gradient-to-r from-ice-500 to-ice-300 hover:from-ice-600 hover:to-ice-400 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 transition-all"
-      >
-        <Download className="w-4 h-4" /> 导出经营摘要
-      </button>
+      <div className="flex gap-3">
+        <button
+          onClick={() => setPreviewOpen(true)}
+          className="flex-1 py-3 bg-gradient-to-r from-ice-500 to-ice-300 hover:from-ice-600 hover:to-ice-400 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 transition-all"
+        >
+          <FileText className="w-4 h-4" /> 预览经营摘要
+        </button>
+        <button
+          onClick={handleExport}
+          className="px-4 py-3 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-2xl text-sm font-medium flex items-center gap-2 transition-colors"
+          title="直接导出全部章节"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+      </div>
+
+      <ReportPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        reportData={{
+          currentBalance,
+          totalReceivable,
+          totalPayable,
+          receivables,
+          payables,
+          predictions,
+          alerts: filteredAlerts,
+          predictionVersions,
+          scenarios: scenarioSimulations,
+          safetyBalance,
+          alertFilter: buildFilterDescription() || undefined,
+          generatedAt: new Date().toLocaleString('zh-CN'),
+        }}
+      />
     </div>
   );
 }

@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { formatAmountFull } from '@/data/mockData';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Truck, AlertTriangle, Calendar, Clock, ArrowUp, Shield } from 'lucide-react';
+import { Truck, AlertTriangle, Calendar, Clock, ArrowUp, Shield, Filter, ArrowUpDown } from 'lucide-react';
 
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '待付款', color: 'bg-ice-500/20 text-ice-400' },
@@ -10,6 +10,13 @@ const statusMap: Record<string, { label: string; color: string }> = {
   paid: { label: '已付款', color: 'bg-emerald-400/20 text-emerald-400' },
   overdue: { label: '已逾期', color: 'bg-coral-500/20 text-coral-400' },
 };
+const PRESSURE_OPTIONS = ['全部', '高压(≥80)', '中压(50-79)', '低压(<50)'] as const;
+const PAY_STATUS_OPTIONS = ['全部', '待付款', '已逾期'] as const;
+const PAY_SORT_OPTIONS = ['优先级', '金额降序', '金额升序', '压力降序', '压力升序'] as const;
+const PAY_STATUS_MAP: Record<string, string> = { '待付款': 'pending', '已逾期': 'overdue' };
+const PILL = 'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors';
+const PILL_ON = 'bg-ice-500 text-white';
+const PILL_OFF = 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10';
 
 function getPressureColor(p: number) {
   if (p >= 80) return '#FF4757';
@@ -37,16 +44,38 @@ function getPressureTextColor(p: number) {
 
 export default function SupplierPayment() {
   const payables = useStore((s) => s.payables);
-  const sorted = useMemo(() => [...payables].sort((a, b) => a.priority - b.priority), [payables]);
+  const [pressureFilter, setPressureFilter] = useState('全部');
+  const [statusFilter, setStatusFilter] = useState('全部');
+  const [amountMin, setAmountMin] = useState('');
+  const [amountMax, setAmountMax] = useState('');
+  const [sortBy, setSortBy] = useState('优先级');
 
-  const totalPayables = payables.reduce((s, p) => s + p.amount, 0);
-  const highPressure = payables.filter((p) => p.paymentPressure >= 80).length;
-  const thisMonth = payables.filter((p) => {
+  const filtered = useMemo(() => {
+    let data = [...payables];
+    if (pressureFilter === '高压(≥80)') data = data.filter((p) => p.paymentPressure >= 80);
+    else if (pressureFilter === '中压(50-79)') data = data.filter((p) => p.paymentPressure >= 50 && p.paymentPressure < 80);
+    else if (pressureFilter === '低压(<50)') data = data.filter((p) => p.paymentPressure < 50);
+    if (statusFilter !== '全部') data = data.filter((p) => p.status === PAY_STATUS_MAP[statusFilter]);
+    if (amountMin) data = data.filter((p) => p.amount >= parseFloat(amountMin) * 10000);
+    if (amountMax) data = data.filter((p) => p.amount <= parseFloat(amountMax) * 10000);
+    switch (sortBy) {
+      case '优先级': data.sort((a, b) => a.priority - b.priority); break;
+      case '金额降序': data.sort((a, b) => b.amount - a.amount); break;
+      case '金额升序': data.sort((a, b) => a.amount - b.amount); break;
+      case '压力降序': data.sort((a, b) => b.paymentPressure - a.paymentPressure); break;
+      case '压力升序': data.sort((a, b) => a.paymentPressure - b.paymentPressure); break;
+    }
+    return data;
+  }, [payables, pressureFilter, statusFilter, amountMin, amountMax, sortBy]);
+
+  const totalPayables = filtered.reduce((s, p) => s + p.amount, 0);
+  const highPressure = filtered.filter((p) => p.paymentPressure >= 80).length;
+  const thisMonth = filtered.filter((p) => {
     const d = new Date(p.dueDate);
     return d.getFullYear() === 2026 && d.getMonth() === 6;
   }).length;
 
-  const chartData = sorted.map((p) => ({
+  const chartData = filtered.map((p) => ({
     name: p.supplierName.length > 6 ? p.supplierName.slice(0, 6) + '…' : p.supplierName,
     fullName: p.supplierName,
     pressure: p.paymentPressure,
@@ -55,7 +84,7 @@ export default function SupplierPayment() {
 
   const calendarDays = useMemo(() => {
     const days: { day: number; amount: number }[] = [];
-    payables.forEach((p) => {
+    filtered.forEach((p) => {
       const d = new Date(p.dueDate);
       if (d.getFullYear() === 2026 && d.getMonth() === 6) {
         const existing = days.find((x) => x.day === d.getDate());
@@ -64,7 +93,7 @@ export default function SupplierPayment() {
       }
     });
     return days;
-  }, [payables]);
+  }, [filtered]);
 
   const firstDayOffset = 3;
   const totalCells = firstDayOffset + 31;
@@ -116,6 +145,38 @@ export default function SupplierPayment() {
         </div>
       </div>
 
+      <div className="glass-card rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">付款压力</span>
+          {PRESSURE_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => setPressureFilter(opt)} className={`${PILL} ${pressureFilter === opt ? PILL_ON : PILL_OFF}`}>{opt}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">状态</span>
+          {PAY_STATUS_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => setStatusFilter(opt)} className={`${PILL} ${statusFilter === opt ? PILL_ON : PILL_OFF}`}>{opt}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">金额范围</span>
+          <input type="number" placeholder="min万" value={amountMin} onChange={(e) => setAmountMin(e.target.value)} className="w-16 bg-white/5 rounded px-2 py-1 text-xs font-mono text-white outline-none border border-white/10" />
+          <span className="text-xs text-gray-500">—</span>
+          <input type="number" placeholder="max万" value={amountMax} onChange={(e) => setAmountMax(e.target.value)} className="w-16 bg-white/5 rounded px-2 py-1 text-xs font-mono text-white outline-none border border-white/10" />
+          <button className="px-3 py-1 rounded-lg text-xs font-medium bg-ice-500/20 text-ice-400 hover:bg-ice-500/30 border border-ice-500/30">筛选</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">排序</span>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-white/5 rounded-lg px-3 py-1.5 text-xs text-white outline-none border border-white/10">
+            {PAY_SORT_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        </div>
+      </div>
+
       <div className="glass-card rounded-xl p-5">
         <h3 className="mb-4 text-sm font-medium text-gray-300">付款压力指数</h3>
         <ResponsiveContainer width="100%" height={300}>
@@ -136,7 +197,7 @@ export default function SupplierPayment() {
 
       <div className="space-y-3">
         <h3 className="text-sm font-medium text-gray-300">供应商付款优先级</h3>
-        {sorted.map((p) => {
+        {filtered.map((p) => {
           const st = statusMap[p.status] || statusMap.pending;
           const isOverdue = p.status === 'overdue';
           return (

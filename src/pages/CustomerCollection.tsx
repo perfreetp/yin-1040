@@ -1,11 +1,18 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { formatAmountFull, getRiskColor, getRiskBg, getProbabilityColor, getProbabilityBg } from '@/data/mockData';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Users, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Clock, Shield } from 'lucide-react';
+import { TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Clock, Shield, Filter, ArrowUpDown } from 'lucide-react';
 
 const PIE_COLORS = ['#34d399', '#00b4d8', '#f59e0b', '#f87171'];
 const RISK_LABELS: Record<string, string> = { A: '低风险', B: '中风险', C: '较高风险', D: '高风险' };
+const RISK_OPTIONS = ['全部', 'A', 'B', 'C', 'D'] as const;
+const STATUS_OPTIONS = ['全部', '待回款', '已逾期', '部分回款'] as const;
+const SORT_OPTIONS = ['默认', '金额降序', '金额升序', '回款概率升序', '回款概率降序'] as const;
+const STATUS_MAP: Record<string, string> = { '待回款': 'pending', '已逾期': 'overdue', '部分回款': 'partial' };
+const PILL = 'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors';
+const PILL_ON = 'bg-ice-500 text-white';
+const PILL_OFF = 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10';
 
 function getBorderClass(prob: number): string {
   if (prob >= 80) return 'border-l-emerald-400';
@@ -35,6 +42,11 @@ function statusStyle(s: string): string {
 export default function CustomerCollection() {
   const receivables = useStore((s) => s.receivables);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [riskFilter, setRiskFilter] = useState('全部');
+  const [statusFilter, setStatusFilter] = useState('全部');
+  const [amountMin, setAmountMin] = useState('');
+  const [amountMax, setAmountMax] = useState('');
+  const [sortBy, setSortBy] = useState('默认');
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -43,19 +55,34 @@ export default function CustomerCollection() {
       return next;
     });
 
-  const high = receivables.filter((r) => r.collectionProbability >= 80).length;
-  const mid = receivables.filter((r) => r.collectionProbability >= 60 && r.collectionProbability < 80).length;
-  const low = receivables.filter((r) => r.collectionProbability >= 40 && r.collectionProbability < 60).length;
-  const vlow = receivables.filter((r) => r.collectionProbability < 40).length;
+  const filtered = useMemo(() => {
+    let data = [...receivables];
+    if (riskFilter !== '全部') data = data.filter((r) => r.riskLevel === riskFilter);
+    if (statusFilter !== '全部') data = data.filter((r) => r.status === STATUS_MAP[statusFilter]);
+    if (amountMin) data = data.filter((r) => r.amount >= parseFloat(amountMin) * 10000);
+    if (amountMax) data = data.filter((r) => r.amount <= parseFloat(amountMax) * 10000);
+    switch (sortBy) {
+      case '金额降序': data.sort((a, b) => b.amount - a.amount); break;
+      case '金额升序': data.sort((a, b) => a.amount - b.amount); break;
+      case '回款概率升序': data.sort((a, b) => a.collectionProbability - b.collectionProbability); break;
+      case '回款概率降序': data.sort((a, b) => b.collectionProbability - a.collectionProbability); break;
+    }
+    return data;
+  }, [receivables, riskFilter, statusFilter, amountMin, amountMax, sortBy]);
+
+  const high = filtered.filter((r) => r.collectionProbability >= 80).length;
+  const mid = filtered.filter((r) => r.collectionProbability >= 60 && r.collectionProbability < 80).length;
+  const low = filtered.filter((r) => r.collectionProbability >= 40 && r.collectionProbability < 60).length;
+  const vlow = filtered.filter((r) => r.collectionProbability < 40).length;
 
   const pieData = (['A', 'B', 'C', 'D'] as const).map((level, i) => ({
     name: `${level}级-${RISK_LABELS[level]}`,
-    value: receivables.filter((r) => r.riskLevel === level).reduce((s, r) => s + r.amount, 0),
+    value: filtered.filter((r) => r.riskLevel === level).reduce((s, r) => s + r.amount, 0),
     color: PIE_COLORS[i],
   })).filter((d) => d.value > 0);
 
   const today = new Date('2026-06-15');
-  const aging = receivables.reduce((acc, r) => {
+  const aging = filtered.reduce((acc, r) => {
     const due = new Date(r.dueDate);
     const diff = Math.floor((today.getTime() - due.getTime()) / 86400000);
     let bucket: string;
@@ -96,6 +123,38 @@ export default function CustomerCollection() {
         ))}
       </div>
 
+      <div className="glass-card rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">风险等级</span>
+          {RISK_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => setRiskFilter(opt)} className={`${PILL} ${riskFilter === opt ? PILL_ON : PILL_OFF}`}>{opt}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">状态</span>
+          {STATUS_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => setStatusFilter(opt)} className={`${PILL} ${statusFilter === opt ? PILL_ON : PILL_OFF}`}>{opt}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">金额范围</span>
+          <input type="number" placeholder="min万" value={amountMin} onChange={(e) => setAmountMin(e.target.value)} className="w-16 bg-white/5 rounded px-2 py-1 text-xs font-mono text-white outline-none border border-white/10" />
+          <span className="text-xs text-gray-500">—</span>
+          <input type="number" placeholder="max万" value={amountMax} onChange={(e) => setAmountMax(e.target.value)} className="w-16 bg-white/5 rounded px-2 py-1 text-xs font-mono text-white outline-none border border-white/10" />
+          <button className="px-3 py-1 rounded-lg text-xs font-medium bg-ice-500/20 text-ice-400 hover:bg-ice-500/30 border border-ice-500/30">筛选</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">排序</span>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-white/5 rounded-lg px-3 py-1.5 text-xs text-white outline-none border border-white/10">
+            {SORT_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        </div>
+      </div>
+
       <div className="grid grid-cols-3 gap-4">
         <div className="glass-card rounded-xl p-5">
           <h3 className="mb-3 text-sm font-medium text-gray-300">回款风险分布</h3>
@@ -134,7 +193,7 @@ export default function CustomerCollection() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        {receivables.map((r) => (
+        {filtered.map((r) => (
           <div key={r.id} className={`glass-card rounded-xl border-l-4 ${getBorderClass(r.collectionProbability)} p-4 transition-all`}>
             <div className="flex items-start justify-between">
               <div>
@@ -150,12 +209,10 @@ export default function CustomerCollection() {
                 </span>
               </div>
             </div>
-
             <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
               <Clock className="h-3 w-3" />
               <span>到期日：{r.dueDate}</span>
             </div>
-
             <div className="mt-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-400">回款概率</span>
@@ -170,7 +227,6 @@ export default function CustomerCollection() {
                 />
               </div>
             </div>
-
             <button
               onClick={() => toggle(r.id)}
               className="mt-2 flex w-full items-center justify-center gap-1 text-[10px] text-gray-500 hover:text-gray-300"
@@ -178,7 +234,6 @@ export default function CustomerCollection() {
               {expanded.has(r.id) ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               {expanded.has(r.id) ? '收起详情' : '展开详情'}
             </button>
-
             {expanded.has(r.id) && (
               <div className="mt-2 space-y-1 rounded-lg bg-navy-800/50 p-3 text-xs">
                 <div className="flex items-center justify-between">
