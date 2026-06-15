@@ -65,12 +65,12 @@ export const mockHistoricalCashFlow = [
 ];
 
 export const mockAlerts: Alert[] = [
-  { id: 'a1', level: 'red', title: '资金缺口预警', description: '7月预计资金缺口161万元，低于安全余额线，请立即安排融资或加速回款', createdAt: '2026-06-15 09:30', isRead: false, notes: [] },
-  { id: 'a2', level: 'orange', title: '逾期回款提醒', description: '阿里巴巴集团应收98万元已逾期15天，回款概率仅45%，建议催收', createdAt: '2026-06-15 08:15', isRead: false, notes: [] },
-  { id: 'a3', level: 'orange', title: '高压力付款提醒', description: 'SK海力士应付280万元已逾期，付款压力指数98%，需优先处理', createdAt: '2026-06-14 16:45', isRead: true, notes: ['已联系财务安排付款'] },
-  { id: 'a4', level: 'yellow', title: '9月资金压力预警', description: '9月预测净现金流-127万元，建议提前规划资金调度', createdAt: '2026-06-14 10:00', isRead: true, notes: [] },
-  { id: 'a5', level: 'yellow', title: '客户回款风险', description: '美团点评回款概率仅35%，风险等级D，建议收紧信用额度', createdAt: '2026-06-13 14:20', isRead: true, notes: ['已通知销售部门'] },
-  { id: 'a6', level: 'green', title: '10月资金改善', description: '10月预计净现金流222万元，资金状况改善', createdAt: '2026-06-13 09:00', isRead: true, notes: [] },
+  { id: 'a1', type: 'funding_gap', level: 'red', title: '资金缺口预警', description: '7月预计资金缺口161万元，低于安全余额线，请立即安排融资或加速回款', createdAt: '2026-06-15 09:30', isRead: false, notes: [] },
+  { id: 'a2', type: 'customer_overdue', level: 'orange', title: '逾期回款提醒', description: '阿里巴巴集团应收98万元已逾期15天，回款概率仅45%，建议催收', createdAt: '2026-06-15 08:15', isRead: false, notes: [] },
+  { id: 'a3', type: 'supplier_pressure', level: 'orange', title: '高压力付款提醒', description: 'SK海力士应付280万元已逾期，付款压力指数98%，需优先处理', createdAt: '2026-06-14 16:45', isRead: true, notes: ['已联系财务安排付款'] },
+  { id: 'a4', type: 'funding_gap', level: 'yellow', title: '9月资金压力预警', description: '9月预测净现金流-127万元，建议提前规划资金调度', createdAt: '2026-06-14 10:00', isRead: true, notes: [] },
+  { id: 'a5', type: 'customer_overdue', level: 'yellow', title: '客户回款风险', description: '美团点评回款概率仅35%，风险等级D，建议收紧信用额度', createdAt: '2026-06-13 14:20', isRead: true, notes: ['已通知销售部门'] },
+  { id: 'a6', type: 'funding_gap', level: 'green', title: '10月资金改善', description: '10月预计净现金流222万元，资金状况改善', createdAt: '2026-06-13 09:00', isRead: true, notes: [] },
 ];
 
 export const mockPredictionVersions: PredictionVersion[] = [
@@ -83,8 +83,8 @@ export const mockPredictionVersions: PredictionVersion[] = [
       { id: 'v1-cf2', month: '2026-08', inflow: 9000000, outflow: 7200000, netFlow: 1800000, gap: 0, scenario: 'neutral' },
     ],
     actuals: [
-      { id: 'v1-a1', month: '2026-07', inflow: 8250000, outflow: 9860000, netFlow: -1610000, gap: 1610000, scenario: 'neutral' },
-      { id: 'v1-a2', month: '2026-08', inflow: 9120000, outflow: 7530000, netFlow: 1590000, gap: 0, scenario: 'neutral' },
+      { month: '2026-07', inflow: 8250000, outflow: 9860000, netFlow: -1610000 },
+      { month: '2026-08', inflow: 9120000, outflow: 7530000, netFlow: 1590000 },
     ],
   },
 ];

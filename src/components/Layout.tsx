@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { LayoutDashboard, Database, TrendingUp, Users, Truck, FlaskConical, Bell, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { useStore } from '@/store/useStore';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: '首页' },
@@ -14,7 +15,8 @@ const navItems = [
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
-  const unreadCount = 2;
+  const alerts = useStore((s) => s.alerts);
+  const unreadCount = alerts.filter((a) => !a.isRead).length;
 
   return (
     <div className="flex h-screen overflow-hidden">

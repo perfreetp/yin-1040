@@ -1,11 +1,18 @@
+export type ReceivableStatus = 'pending' | 'partial' | 'received' | 'overdue';
+export type PayableStatus = 'pending' | 'partial' | 'paid' | 'overdue';
+export type RiskLevel = 'A' | 'B' | 'C' | 'D';
+export type Scenario = 'optimistic' | 'neutral' | 'pessimistic';
+export type AlertLevel = 'green' | 'yellow' | 'orange' | 'red';
+export type AlertType = 'funding_gap' | 'customer_overdue' | 'supplier_pressure' | 'anomaly';
+
 export interface Receivable {
   id: string;
   customerName: string;
   amount: number;
   dueDate: string;
-  status: 'pending' | 'partial' | 'received' | 'overdue';
+  status: ReceivableStatus;
   collectionProbability: number;
-  riskLevel: 'A' | 'B' | 'C' | 'D';
+  riskLevel: RiskLevel;
   isAnomaly: boolean;
   anomalyReason?: string;
 }
@@ -15,7 +22,7 @@ export interface Payable {
   supplierName: string;
   amount: number;
   dueDate: string;
-  status: 'pending' | 'partial' | 'paid' | 'overdue';
+  status: PayableStatus;
   paymentPressure: number;
   priority: number;
 }
@@ -27,18 +34,27 @@ export interface CashFlowPrediction {
   outflow: number;
   netFlow: number;
   gap: number;
-  scenario: 'optimistic' | 'neutral' | 'pessimistic';
+  scenario: Scenario;
+}
+
+export interface ActualResult {
+  month: string;
+  inflow: number;
+  outflow: number;
+  netFlow: number;
 }
 
 export interface Alert {
   id: string;
-  level: 'green' | 'yellow' | 'orange' | 'red';
+  type: AlertType;
+  level: AlertLevel;
   title: string;
   description: string;
   createdAt: string;
   isRead: boolean;
   notes: string[];
   relatedEntityId?: string;
+  relatedEntityType?: 'receivable' | 'payable' | 'prediction';
 }
 
 export interface PredictionVersion {
@@ -46,7 +62,7 @@ export interface PredictionVersion {
   name: string;
   lockedAt: string;
   predictions: CashFlowPrediction[];
-  actuals: CashFlowPrediction[];
+  actuals: ActualResult[];
 }
 
 export interface SafetyBalance {
@@ -60,4 +76,15 @@ export interface ScenarioSimulation {
   collectionDelayDays: number;
   earlyPurchaseAmount: number;
   adjustedPredictions: CashFlowPrediction[];
+}
+
+export interface PersistedState {
+  receivables: Receivable[];
+  payables: Payable[];
+  predictions: CashFlowPrediction[];
+  alerts: Alert[];
+  predictionVersions: PredictionVersion[];
+  safetyBalance: SafetyBalance;
+  scenarioSimulations: ScenarioSimulation[];
+  currentBalance: number;
 }

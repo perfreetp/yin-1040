@@ -1,15 +1,9 @@
+import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { mockHistoricalCashFlow, formatAmount, getAlertLevelBorder } from '@/data/mockData';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Wallet, ArrowUpRight, ArrowDownRight, TrendingUp, Database, FlaskConical, AlertTriangle, Bell } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, TrendingUp, Database, FlaskConical, AlertTriangle, Bell, RefreshCw, Pencil, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const statCards = [
-  { key: 'balance', label: '当前可用资金', value: 12600000, trend: 8.2, icon: Wallet, color: 'text-ice-500', bg: 'bg-ice-500/15' },
-  { key: 'receivable', label: '应收总额', value: 15610000, trend: 12.5, icon: ArrowUpRight, color: 'text-emerald-400', bg: 'bg-emerald-400/15' },
-  { key: 'payable', label: '应付总额', value: 15760000, trend: -6.3, icon: ArrowDownRight, color: 'text-coral-500', bg: 'bg-coral-500/15' },
-  { key: 'netflow', label: '净现金流', value: -150000, trend: -15.4, icon: TrendingUp, color: 'text-amber-500', bg: 'bg-amber-500/15' },
-];
 
 function buildChartData(predictions: import('@/types').CashFlowPrediction[], safetyAmount: number) {
   const predicted = predictions
@@ -43,13 +37,47 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 export default function Home() {
-  const { predictions, alerts, safetyBalance, receivables, payables, currentBalance } = useStore();
+  const { predictions, alerts, safetyBalance, receivables, payables, currentBalance, setCurrentBalance, regeneratePredictions } = useStore();
+  const [isEditingBalance, setIsEditingBalance] = useState(false);
+  const [balanceInput, setBalanceInput] = useState(String(currentBalance));
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const chartData = buildChartData(predictions, safetyBalance.amount);
   const recentAlerts = alerts.slice(0, 3);
   const neutralPredictions = predictions.filter((p) => p.scenario === 'neutral');
   const maxGap = Math.max(...neutralPredictions.map((p) => p.gap), 1);
   const nextGap = neutralPredictions[0];
   const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const receivablesTotal = receivables.filter((r) => r.status !== 'received').reduce((sum, r) => sum + r.amount, 0);
+  const payablesTotal = payables.filter((p) => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
+  const netCashFlow = currentBalance + receivablesTotal - payablesTotal;
+
+  const handleSaveBalance = () => {
+    const val = parseFloat(balanceInput);
+    if (!isNaN(val) && val >= 0) {
+      setCurrentBalance(val);
+      setIsEditingBalance(false);
+    }
+  };
+
+  const handleStartEdit = () => {
+    setBalanceInput(String(currentBalance));
+    setIsEditingBalance(true);
+  };
+
+  const handleRegenerate = () => {
+    setIsRefreshing(true);
+    regeneratePredictions();
+    setTimeout(() => setIsRefreshing(false), 800);
+  };
+
+  const statCards = [
+    { key: 'balance', label: '当前可用资金', value: currentBalance, icon: Wallet, color: 'text-ice-500', bg: 'bg-ice-500/15', editable: true },
+    { key: 'receivable', label: '应收总额', value: receivablesTotal, icon: ArrowUpRight, color: 'text-emerald-400', bg: 'bg-emerald-400/15', editable: false },
+    { key: 'payable', label: '应付总额', value: payablesTotal, icon: ArrowDownRight, color: 'text-coral-500', bg: 'bg-coral-500/15', editable: false },
+    { key: 'netflow', label: '净现金流', value: netCashFlow, icon: TrendingUp, color: netCashFlow >= 0 ? 'text-emerald-400' : 'text-amber-500', bg: netCashFlow >= 0 ? 'bg-emerald-400/15' : 'bg-amber-500/15', editable: false },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -58,27 +86,64 @@ export default function Home() {
           <h1 className="text-2xl font-bold gradient-text">现金流总览</h1>
           <p className="text-gray-400 mt-1 text-sm">{today}</p>
         </div>
+        <button
+          onClick={handleRegenerate}
+          className="glass-card rounded-lg px-3 py-2 flex items-center gap-2 text-sm text-ice-400 hover:text-ice-300 hover:bg-navy-800/60 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          重新生成预测
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon;
-          const isUp = card.trend >= 0;
+          const isBalance = card.key === 'balance';
           return (
             <div key={card.key} className="glass-card rounded-xl p-4 transition-colors">
               <div className="flex items-center gap-3 mb-3">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center ${card.bg}`}>
                   <Icon className={`w-4 h-4 ${card.color}`} />
                 </div>
-                <span className="text-gray-400 text-sm">{card.label}</span>
+                <div className="flex-1 flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">{card.label}</span>
+                  {isBalance && !isEditingBalance && (
+                    <button
+                      onClick={handleStartEdit}
+                      className="text-gray-500 hover:text-ice-400 transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="font-mono text-2xl font-bold text-white">
-                ¥{formatAmount(card.value)}
-              </p>
-              <div className={`flex items-center gap-1 mt-2 text-sm ${isUp ? 'text-emerald-400' : 'text-coral-500'}`}>
-                {isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                <span>{isUp ? '+' : ''}{card.trend}% 环比</span>
-              </div>
+              {isBalance && isEditingBalance ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xl text-white">¥</span>
+                  <input
+                    type="number"
+                    value={balanceInput}
+                    onChange={(e) => setBalanceInput(e.target.value)}
+                    className="flex-1 bg-navy-800/60 border border-navy-600 rounded px-2 py-1 font-mono text-xl font-bold text-white focus:outline-none focus:border-ice-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveBalance}
+                    className="p-1.5 rounded bg-ice-500/20 text-ice-400 hover:bg-ice-500/30 transition-colors"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <p className="font-mono text-2xl font-bold text-white">
+                  ¥{formatAmount(card.value)}
+                </p>
+              )}
+              {!isEditingBalance && (
+                <div className={`mt-2 text-xs text-gray-500`}>
+                  {isBalance && <span>点击铅笔图标编辑当前余额</span>}
+                </div>
+              )}
             </div>
           );
         })}

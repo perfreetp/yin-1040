@@ -3,27 +3,64 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { Bell, Shield, Lock, MessageSquare, Download, Eye, EyeOff, CheckCircle, AlertTriangle, Plus, FileText } from 'lucide-react';
+import {
+  Bell, Shield, Lock, MessageSquare, Download, Eye, EyeOff,
+  CheckCircle, AlertTriangle, Plus, FileText, RefreshCw, CheckCheck, Filter,
+} from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { getAlertLevelColor, getAlertLevelBorder, formatAmount } from '@/data/mockData';
+import { generateBusinessReport, downloadReport } from '@/utils/report';
+import type { AlertLevel, AlertType } from '@/types';
 
 const levelConfig = [
-  { level: 'green' as const, label: '低风险', bg: 'bg-emerald-500' },
-  { level: 'yellow' as const, label: '中风险', bg: 'bg-amber-500' },
-  { level: 'orange' as const, label: '较高风险', bg: 'bg-orange-500' },
-  { level: 'red' as const, label: '高风险', bg: 'bg-coral-500' },
+  { level: 'green' as const, label: '低风险', bg: 'bg-emerald-500', text: 'text-emerald-400' },
+  { level: 'yellow' as const, label: '中风险', bg: 'bg-amber-500', text: 'text-amber-400' },
+  { level: 'orange' as const, label: '较高风险', bg: 'bg-orange-500', text: 'text-orange-400' },
+  { level: 'red' as const, label: '高风险', bg: 'bg-coral-500', text: 'text-coral-400' },
+];
+
+const typeBadgeConfig: Record<AlertType, { label: string; bg: string; text: string }> = {
+  funding_gap: { label: '资金缺口', bg: 'bg-coral-500/20', text: 'text-coral-400' },
+  customer_overdue: { label: '客户逾期', bg: 'bg-amber-500/20', text: 'text-amber-400' },
+  supplier_pressure: { label: '供应商压力', bg: 'bg-ice-500/20', text: 'text-ice-400' },
+  anomaly: { label: '数据异常', bg: 'bg-purple-500/20', text: 'text-purple-400' },
+};
+
+const levelFilterOptions: Array<{ value: 'all' | AlertLevel; label: string; bg?: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'green', label: '低风险', bg: 'bg-emerald-500' },
+  { value: 'yellow', label: '中风险', bg: 'bg-amber-500' },
+  { value: 'orange', label: '较高风险', bg: 'bg-orange-500' },
+  { value: 'red', label: '高风险', bg: 'bg-coral-500' },
 ];
 
 export default function AlertPage() {
-  const { alerts, predictionVersions, markAlertRead, addAlertNote, lockPredictionVersion } = useStore();
+  const store = useStore();
+  const {
+    alerts, predictionVersions, receivables, payables, predictions,
+    scenarioSimulations, safetyBalance, currentBalance,
+    markAlertRead, markAllAlertsRead, addAlertNote,
+    lockPredictionVersion, refreshAlerts,
+  } = store;
+
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
   const [versionName, setVersionName] = useState('');
+  const [levelFilter, setLevelFilter] = useState<'all' | AlertLevel>('all');
+  const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
 
   const riskCounts = useMemo(() => {
     const counts = { green: 0, yellow: 0, orange: 0, red: 0 };
     alerts.forEach((a) => { counts[a.level]++; });
     return counts;
   }, [alerts]);
+
+  const filteredAlerts = useMemo(() => {
+    return alerts.filter((a) => {
+      if (levelFilter !== 'all' && a.level !== levelFilter) return false;
+      if (readFilter === 'unread' && a.isRead) return false;
+      return true;
+    });
+  }, [alerts, levelFilter, readFilter]);
 
   const comparisonData = useMemo(() => {
     const version = predictionVersions[0];
@@ -44,6 +81,15 @@ export default function AlertPage() {
     });
   }, [predictionVersions]);
 
+  const totalReceivable = useMemo(
+    () => receivables.reduce((s, r) => s + r.amount, 0),
+    [receivables]
+  );
+  const totalPayable = useMemo(
+    () => payables.reduce((s, p) => s + p.amount, 0),
+    [payables]
+  );
+
   const handleAddNote = (alertId: string) => {
     const note = noteInputs[alertId]?.trim();
     if (!note) return;
@@ -58,43 +104,64 @@ export default function AlertPage() {
     }
   };
 
-  const handleExport = () => {
-    const lines = [
-      '=== 经营摘要报告 ===',
-      `生成时间：${new Date().toLocaleString('zh-CN')}`,
-      '',
-      '【风险预警统计】',
-      ...levelConfig.map(({ level, label }) => `${label}：${riskCounts[level]}条`),
-      '',
-      '【预警详情】',
-      ...alerts.map((a) => `[${a.level}] ${a.title} - ${a.description} (${a.createdAt})`),
-      '',
-      '【资金预测版本】',
-      ...predictionVersions.map((v) => `${v.name}（锁定于${v.lockedAt}）`),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '经营摘要.txt';
-    a.click();
-    URL.revokeObjectURL(url);
+  const buildFilterDescription = (): string => {
+    const parts: string[] = [];
+    if (levelFilter !== 'all') {
+      const levelLabel = levelConfig.find((l) => l.level === levelFilter)?.label || levelFilter;
+      parts.push(`风险等级：${levelLabel}`);
+    }
+    if (readFilter === 'unread') {
+      parts.push(`状态：未读`);
+    }
+    return parts.join('，');
   };
+
+  const handleExport = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const filename = `经营摘要_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+    const alertFilter = buildFilterDescription();
+    const content = generateBusinessReport({
+      currentBalance,
+      totalReceivable,
+      totalPayable,
+      receivables,
+      payables,
+      predictions,
+      alerts: filteredAlerts,
+      predictionVersions,
+      scenarios: scenarioSimulations,
+      safetyBalance,
+      alertFilter: alertFilter || undefined,
+      generatedAt: now.toLocaleString('zh-CN'),
+    });
+    downloadReport(filename, content);
+  };
+
+  const unreadCount = alerts.filter((a) => !a.isRead).length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Bell className="w-6 h-6 text-amber-500" /> 风险预警中心
-        </h1>
-        <p className="text-gray-400 text-sm mt-1">AI风险等级评估与预警管理</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Bell className="w-6 h-6 text-amber-500" /> 风险预警中心
+          </h1>
+          <p className="text-gray-400 text-sm mt-1">AI风险等级评估与预警管理</p>
+        </div>
+        {unreadCount > 0 && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-coral-500/15 border border-coral-500/30 rounded-full">
+            <AlertTriangle className="w-4 h-4 text-coral-400" />
+            <span className="text-coral-400 text-sm font-medium">{unreadCount} 条未读预警</span>
+          </div>
+        )}
       </div>
 
       <div className="glass-card rounded-2xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-ice-500" /> 风险等级分布
         </h2>
-        <div className="flex gap-6">
+        <div className="flex gap-6 flex-wrap">
           {levelConfig.map(({ level, label, bg }) => (
             <div key={level} className="flex items-center gap-2">
               <div className={`w-4 h-4 rounded-full ${bg}`} />
@@ -105,75 +172,167 @@ export default function AlertPage() {
         </div>
       </div>
 
-      <div className="space-y-4">
-        {alerts.map((alert) => (
-          <div
-            key={alert.id}
-            className={`glass-card rounded-2xl p-5 border-l-4 ${getAlertLevelBorder(alert.level)}`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${getAlertLevelColor(alert.level)}`} />
-                <span className="text-white font-bold text-sm">{alert.title}</span>
-              </div>
+      <div className="glass-card rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-gray-400" />
+          <span className="text-gray-300 text-sm font-medium">筛选</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap gap-2">
+            {levelFilterOptions.map(({ value, label, bg }) => (
               <button
-                onClick={() => markAlertRead(alert.id)}
-                className="text-gray-400 hover:text-white transition-colors"
-                title={alert.isRead ? '标为未读' : '标为已读'}
+                key={value}
+                onClick={() => setLevelFilter(value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  levelFilter === value
+                    ? 'bg-ice-500 text-white shadow-lg shadow-ice-500/20'
+                    : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+                }`}
               >
-                {alert.isRead ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {bg && <div className={`w-2 h-2 rounded-full ${bg}`} />}
+                {label}
               </button>
-            </div>
-            <p className="text-gray-400 text-sm mt-2">{alert.description}</p>
-            <p className="text-gray-500 text-xs mt-1">{alert.createdAt}</p>
+            ))}
+          </div>
+          <div className="w-px h-6 bg-white/10 hidden sm:block" />
+          <div className="flex gap-2">
+            <button
+              onClick={() => setReadFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                readFilter === 'all'
+                  ? 'bg-ice-500 text-white shadow-lg shadow-ice-500/20'
+                  : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+            >
+              全部状态
+            </button>
+            <button
+              onClick={() => setReadFilter('unread')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                readFilter === 'unread'
+                  ? 'bg-coral-500 text-white shadow-lg shadow-coral-500/20'
+                  : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+            >
+              <EyeOff className="w-3 h-3" /> 未读
+            </button>
+          </div>
+          <div className="flex-1" />
+          <div className="flex gap-2">
+            <button
+              onClick={markAllAlertsRead}
+              className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+            >
+              <CheckCheck className="w-3.5 h-3.5" /> 全部标为已读
+            </button>
+            <button
+              onClick={refreshAlerts}
+              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> 刷新预警
+            </button>
+          </div>
+        </div>
+        <div className="text-xs text-gray-500">
+          共 {filteredAlerts.length} / {alerts.length} 条预警
+        </div>
+      </div>
 
-            <div className="mt-3 bg-white/5 rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-2">
-                <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
-                <span className="text-gray-300 text-xs font-medium">备注</span>
-              </div>
-              {alert.notes.length > 0 && (
-                <div className="space-y-1.5 mb-2">
-                  {alert.notes.map((note, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-xs">
-                      <CheckCircle className="w-3 h-3 text-ice-500 shrink-0 mt-0.5" />
-                      <span className="text-gray-300">{note}</span>
+      <div className="space-y-4">
+        {filteredAlerts.map((alert) => {
+          const typeConfig = typeBadgeConfig[alert.type] || { label: alert.type, bg: 'bg-gray-500/20', text: 'text-gray-400' };
+          return (
+            <div
+              key={alert.id}
+              className={`glass-card rounded-2xl p-5 border-l-4 ${getAlertLevelBorder(alert.level)} ${
+                !alert.isRead ? 'bg-white/[0.07]' : ''
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-2.5 flex-wrap">
+                  <div className={`w-2.5 h-2.5 rounded-full ${getAlertLevelColor(alert.level)} mt-1.5`} />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${typeConfig.bg} ${typeConfig.text}`}>
+                        {typeConfig.label}
+                      </span>
+                      {!alert.isRead && (
+                        <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-coral-500/25 text-coral-400 animate-pulse">
+                          NEW
+                        </span>
+                      )}
+                      <span className="text-white font-bold text-sm">{alert.title}</span>
                     </div>
-                  ))}
+                    <p className="text-gray-400 text-sm">{alert.description}</p>
+                    <p className="text-gray-500 text-xs">{alert.createdAt}</p>
+                  </div>
                 </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={noteInputs[alert.id] || ''}
-                  onChange={(e) => setNoteInputs((prev) => ({ ...prev, [alert.id]: e.target.value }))}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddNote(alert.id)}
-                  placeholder="添加备注..."
-                  className="flex-1 bg-white/5 rounded-lg px-3 py-1.5 text-white text-xs outline-none border border-white/10 focus:border-ice-500/50 transition-colors"
-                />
                 <button
-                  onClick={() => handleAddNote(alert.id)}
-                  className="px-3 py-1.5 bg-ice-500/20 hover:bg-ice-500/30 text-ice-400 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                  onClick={() => markAlertRead(alert.id, !alert.isRead)}
+                  className="text-gray-400 hover:text-white transition-colors shrink-0"
+                  title={alert.isRead ? '标为未读' : '标为已读'}
                 >
-                  <Plus className="w-3 h-3" /> 添加
+                  {alert.isRead ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+
+              <div className="mt-4 bg-white/5 rounded-xl p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
+                  <span className="text-gray-300 text-xs font-medium">备注</span>
+                  {alert.notes.length > 0 && (
+                    <span className="text-gray-500 text-xs">({alert.notes.length})</span>
+                  )}
+                </div>
+                {alert.notes.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {alert.notes.map((note, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs">
+                        <CheckCircle className="w-3 h-3 text-ice-500 shrink-0 mt-0.5" />
+                        <span className="text-gray-300">{note}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={noteInputs[alert.id] || ''}
+                    onChange={(e) => setNoteInputs((prev) => ({ ...prev, [alert.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddNote(alert.id)}
+                    placeholder="添加备注..."
+                    className="flex-1 bg-white/5 rounded-lg px-3 py-1.5 text-white text-xs outline-none border border-white/10 focus:border-ice-500/50 transition-colors"
+                  />
+                  <button
+                    onClick={() => handleAddNote(alert.id)}
+                    className="px-3 py-1.5 bg-ice-500/20 hover:bg-ice-500/30 text-ice-400 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" /> 添加
+                  </button>
+                </div>
+              </div>
             </div>
+          );
+        })}
+        {filteredAlerts.length === 0 && (
+          <div className="glass-card rounded-2xl p-10 text-center">
+            <FileText className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">暂无符合条件的预警</p>
           </div>
-        ))}
+        )}
       </div>
 
       <div className="glass-card rounded-2xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Lock className="w-5 h-5 text-ice-500" /> 预测版本锁定
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <input
             type="text"
             value={versionName}
             onChange={(e) => setVersionName(e.target.value)}
             placeholder="输入版本名称"
-            className="flex-1 bg-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none border border-white/10 focus:border-ice-500/50 transition-colors"
+            className="flex-1 min-w-[200px] bg-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none border border-white/10 focus:border-ice-500/50 transition-colors"
           />
           <button
             onClick={handleLockVersion}
@@ -223,7 +382,7 @@ export default function AlertPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-          <div className="flex gap-4 mt-3 text-xs text-gray-400">
+          <div className="flex gap-4 mt-3 text-xs text-gray-400 flex-wrap">
             {comparisonData.map((d) => (
               <span key={d.month} className={Math.abs(d.deviation) > 10 ? 'text-coral-500' : 'text-emerald-400'}>
                 {d.month}偏差{d.deviation > 0 ? '+' : ''}{d.deviation}%

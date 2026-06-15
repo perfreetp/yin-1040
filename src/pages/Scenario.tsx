@@ -6,6 +6,7 @@ import {
 import { FlaskConical, Clock, ShoppingCart, Plus, FileText, Trash2, AlertTriangle } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { formatAmount } from '@/data/mockData';
+import { generateBusinessReport, downloadReport } from '@/utils/report';
 import type { CashFlowPrediction, ScenarioSimulation } from '@/types';
 
 function computeAdjustedPredictions(
@@ -36,7 +37,9 @@ function computeAdjustedPredictions(
 const scenarioColors = ['#00D4FF', '#FFB020', '#FF4757'];
 
 export default function Scenario() {
-  const { predictions, scenarioSimulations, addScenarioSimulation, removeScenarioSimulation } = useStore();
+  const store = useStore();
+  const { predictions, scenarioSimulations, addScenarioSimulation, removeScenarioSimulation,
+    receivables, payables, alerts, predictionVersions, safetyBalance, currentBalance } = store;
   const [delayDays, setDelayDays] = useState(0);
   const [earlyPurchase, setEarlyPurchase] = useState(0);
   const [scenarioName, setScenarioName] = useState('');
@@ -247,7 +250,21 @@ export default function Scenario() {
 
       <div className="flex justify-end">
         <button
-          onClick={() => alert('推演报告已生成')}
+          onClick={() => {
+            const ts = new Date();
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const fname = `情景推演报告_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.txt`;
+            const totalReceivable = receivables.filter((r) => r.status !== 'received').reduce((s, r) => s + r.amount, 0);
+            const totalPayable = payables.filter((p) => p.status !== 'paid').reduce((s, p) => s + p.amount, 0);
+            const content = generateBusinessReport({
+              currentBalance, totalReceivable, totalPayable,
+              receivables, payables, predictions, alerts,
+              predictionVersions, scenarios: scenarioSimulations, safetyBalance,
+              generatedAt: new Date().toLocaleString('zh-CN'),
+              alertFilter: '情景推演模式',
+            });
+            downloadReport(fname, content);
+          }}
           className="px-6 py-2.5 bg-ice-500 hover:bg-ice-600 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
         >
           <FileText className="w-4 h-4" />
